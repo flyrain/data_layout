@@ -1,0 +1,595 @@
+struct task_struct {
+  state = 1, 
+  stack = 0xccc30000, 
+  usage = {
+    counter = 2
+  }, 
+  flags = 4194560, 
+  ptrace = 0, 
+  lock_depth = -1, 
+  prio = 120, 
+  static_prio = 120, 
+  normal_prio = 120, 
+  sched_class = 0xc035df40, 
+  se = {
+    load = {
+      weight = 1024, 
+      inv_weight = 4194304
+    }, 
+    run_node = {
+      rb_parent_color = 3329549360, 
+      rb_right = 0x0, 
+      rb_left = 0x0
+    }, 
+    group_node = {
+      next = 0xccc2803c, 
+      prev = 0xccc2803c
+    }, 
+    on_rq = 0, 
+    exec_start = 96835993918, 
+    sum_exec_runtime = 2753253337, 
+    vruntime = 48107289480, 
+    prev_sum_exec_runtime = 2753171321, 
+    last_wakeup = 0, 
+    avg_overlap = 68478, 
+    wait_start = 0, 
+    wait_max = 22722875, 
+    wait_count = 1071, 
+    wait_sum = 242304286, 
+    sleep_start = 96835993918, 
+    sleep_max = 59038862349, 
+    sum_sleep_runtime = 93747335339, 
+    block_start = 0, 
+    block_max = 572898, 
+    exec_max = 5547551, 
+    slice_max = 563053, 
+    nr_migrations = 0, 
+    nr_migrations_cold = 0, 
+    nr_failed_migrations_affine = 0, 
+    nr_failed_migrations_running = 0, 
+    nr_failed_migrations_hot = 0, 
+    nr_forced_migrations = 0, 
+    nr_forced2_migrations = 0, 
+    nr_wakeups = 951, 
+    nr_wakeups_sync = 29, 
+    nr_wakeups_migrate = 0, 
+    nr_wakeups_local = 951, 
+    nr_wakeups_remote = 0, 
+    nr_wakeups_affine = 1, 
+    nr_wakeups_affine_attempts = 943, 
+    nr_wakeups_passive = 0, 
+    nr_wakeups_idle = 0, 
+    parent = 0x0, 
+    cfs_rq = 0xc124acbc, 
+    my_q = 0x0
+  }, 
+  rt = {
+    run_list = {
+      next = 0xccc2815c, 
+      prev = 0xccc2815c
+    }, 
+    time_slice = 250, 
+    timeout = 0, 
+    nr_cpus_allowed = 1, 
+    back = 0x0, 
+    parent = 0x0, 
+    rt_rq = 0xc124ad08, 
+    my_q = 0x0
+  }, 
+  preempt_notifiers = {
+    first = 0x0
+  }, 
+  fpu_counter = 0 '\0', 
+  oomkilladj = 0 '\0', 
+  btrace_seq = 0, 
+  policy = 0, 
+  cpus_allowed = {
+    bits = {1}
+  }, 
+  sched_info = {
+    pcount = 1070, 
+    cpu_time = 2753253337, 
+    run_delay = 242304286, 
+    last_arrival = 96835911902, 
+    last_queued = 0, 
+    bkl_count = 845
+  }, 
+  tasks = {
+    next = 0xccc28e3c, 
+    prev = 0xc042c4fc
+  }, 
+  ptrace_children = {
+    next = 0xccc281c4, 
+    prev = 0xccc281c4
+  }, 
+  ptrace_list = {
+    next = 0xccc281cc, 
+    prev = 0xccc281cc
+  }, 
+  mm = 0xcf96e000, 
+  active_mm = 0xcf96e000, 
+  binfmt = 0xc0436ce0, 
+  exit_state = 0, 
+  exit_code = 0, 
+  exit_signal = 0, 
+  pdeath_signal = 0, 
+  personality = 0, 
+  did_exec = 1, 
+  pid = 1, 
+  tgid = 1, 
+  real_parent = 0xc042c340, 
+  parent = 0xc042c340, 
+  children = {
+    next = 0xcf86f290, 
+    prev = 0xccf12790
+  }, 
+  sibling = {
+    next = 0xccc28e90, 
+    prev = 0xc042c548
+  }, 
+  group_leader = 0xccc28000, 
+  pids = {{
+      node = {
+        next = 0x0, 
+        pprev = 0xccc0a044
+      }, 
+      pid = 0xccc0a040
+    }, {
+      node = {
+        next = 0x0, 
+        pprev = 0xccc0a048
+      }, 
+      pid = 0xccc0a040
+    }, {
+      node = {
+        next = 0x0, 
+        pprev = 0xccc0a04c
+      }, 
+      pid = 0xccc0a040
+    }}, 
+  thread_group = {
+    next = 0xccc28240, 
+    prev = 0xccc28240
+  }, 
+  vfork_done = 0x0, 
+  set_child_tid = 0x0, 
+  clear_child_tid = 0x0, 
+  rt_priority = 0, 
+  utime = 1, 
+  stime = 686, 
+  utimescaled = 1, 
+  stimescaled = 686, 
+  gtime = 0, 
+  prev_utime = 0, 
+  prev_stime = 687, 
+  nvcsw = 952, 
+  nivcsw = 118, 
+  start_time = {
+    tv_sec = 0, 
+    tv_nsec = 92005750
+  }, 
+  real_start_time = {
+    tv_sec = 0, 
+    tv_nsec = 92005750
+  }, 
+  min_flt = 2034, 
+  maj_flt = 37, 
+  it_prof_expires = 0, 
+  it_virt_expires = 0, 
+  it_sched_expires = 0, 
+  cpu_timers = {{
+      next = 0xccc282a4, 
+      prev = 0xccc282a4
+    }, {
+      next = 0xccc282ac, 
+      prev = 0xccc282ac
+    }, {
+      next = 0xccc282b4, 
+      prev = 0xccc282b4
+    }}, 
+  uid = 0, 
+  euid = 0, 
+  suid = 0, 
+  fsuid = 0, 
+  gid = 0, 
+  egid = 0, 
+  sgid = 0, 
+  fsgid = 0, 
+  group_info = 0xc0431980, 
+  cap_effective = {
+    cap = {4294967039, 4294967295}
+  }, 
+  cap_inheritable = {
+    cap = {0, 0}
+  }, 
+  cap_permitted = {
+    cap = {4294967295, 4294967295}
+  }, 
+  cap_bset = {
+    cap = {4294967295, 4294967295}
+  }, 
+  securebits = 0, 
+  user = 0xc0431920, 
+  request_key_auth = 0x0, 
+  thread_keyring = 0x0, 
+  jit_keyring = 0 '\0', 
+  comm = "init\000nit\000\000\000\000\000\000\000", 
+  link_count = 0, 
+  total_link_count = 0, 
+  sysvsem = {
+    undo_list = 0x0
+  }, 
+  last_switch_timestamp = 0, 
+  last_switch_count = 0, 
+  thread = {
+    tls_array = {{
+        {
+          {
+            a = 3904962559, 
+            b = 3084907248
+          }, 
+          {
+            limit0 = 65535, 
+            base0 = 59584, 
+            base1 = 240, 
+            type = 2, 
+            s = 1, 
+            dpl = 3, 
+            p = 1, 
+            limit = 15, 
+            avl = 1, 
+            l = 0, 
+            d = 1, 
+            g = 1, 
+            base2 = 183
+          }
+        }
+      }, {
+        {
+          {
+            a = 0, 
+            b = 0
+          }, 
+          {
+            limit0 = 0, 
+            base0 = 0, 
+            base1 = 0, 
+            type = 0, 
+            s = 0, 
+            dpl = 0, 
+            p = 0, 
+            limit = 0, 
+            avl = 0, 
+            l = 0, 
+            d = 0, 
+            g = 0, 
+            base2 = 0
+          }
+        }
+      }, {
+        {
+          {
+            a = 0, 
+            b = 0
+          }, 
+          {
+            limit0 = 0, 
+            base0 = 0, 
+            base1 = 0, 
+            type = 0, 
+            s = 0, 
+            dpl = 0, 
+            p = 0, 
+            limit = 0, 
+            avl = 0, 
+            l = 0, 
+            d = 0, 
+            g = 0, 
+            base2 = 0
+          }
+        }
+      }}, 
+    sp0 = 3435339768, 
+    sp = 3435338392, 
+    sysenter_cs = 96, 
+    ip = 3224685962, 
+    fs = 216, 
+    gs = 51, 
+    debugreg0 = 0, 
+    debugreg1 = 0, 
+    debugreg2 = 0, 
+    debugreg3 = 0, 
+    debugreg6 = 0, 
+    debugreg7 = 0, 
+    cr2 = 0, 
+    trap_no = 0, 
+    error_code = 0, 
+    xstate = 0x0, 
+    vm86_info = 0x0, 
+    screen_bitmap = 0, 
+    v86flags = 0, 
+    v86mask = 0, 
+    saved_sp0 = 0, 
+    saved_fs = 0, 
+    saved_gs = 0, 
+    io_bitmap_ptr = 0x0, 
+    iopl = 0, 
+    io_bitmap_max = 0, 
+    debugctlmsr = 0, 
+    ds_area_msr = 0
+  }, 
+  fs = 0xc042cfc0, 
+  files = 0xccc21000, 
+  nsproxy = 0xc0431d2c, 
+  signal = 0xccc22000, 
+  sighand = 0xc57b1480, 
+  blocked = {
+    sig = {0, 0}
+  }, 
+  real_blocked = {
+    sig = {0, 0}
+  }, 
+  saved_sigmask = {
+    sig = {0, 0}
+  }, 
+  pending = {
+    list = {
+      next = 0xccc283ec, 
+      prev = 0xccc283ec
+    }, 
+    signal = {
+      sig = {0, 0}
+    }
+  }, 
+  sas_ss_sp = 0, 
+  sas_ss_size = 0, 
+  notifier = 0, 
+  notifier_data = 0x0, 
+  notifier_mask = 0x0, 
+  security = 0x0, 
+  audit_context = 0x0, 
+  loginuid = 4294967295, 
+  sessionid = 4294967295, 
+  seccomp = {
+    mode = 0
+  }, 
+  parent_exec_id = 0, 
+  self_exec_id = 3, 
+  alloc_lock = {
+    raw_lock = {
+      slock = 44975
+    }
+  }, 
+  pi_lock = {
+    raw_lock = {
+      slock = 0
+    }
+  }, 
+  pi_waiters = {
+    prio_list = {
+      next = 0xccc28434, 
+      prev = 0xccc28434
+    }, 
+    node_list = {
+      next = 0xccc2843c, 
+      prev = 0xccc2843c
+    }
+  }, 
+  pi_blocked_on = 0x0, 
+  journal_info = 0x0, 
+  bio_list = 0x0, 
+  bio_tail = 0x0, 
+  reclaim_state = 0x0, 
+  backing_dev_info = 0x0, 
+  io_context = 0xcf53cea0, 
+  ptrace_message = 0, 
+  last_siginfo = 0x0, 
+  rchar = 19886, 
+  wchar = 122641898, 
+  syscr = 292, 
+  syscw = 4173, 
+  ioac = {
+    read_bytes = 1712128, 
+    write_bytes = 0, 
+    cancelled_write_bytes = 0
+  }, 
+  acct_rss_mem1 = 1587, 
+  acct_vm_mem1 = 177994, 
+  acct_stimexpd = 686, 
+  mems_allowed = {
+    bits = {1}
+  }, 
+  cpuset_mems_generation = 0, 
+  cpuset_mem_spread_rotor = 0, 
+  cgroups = 0xc051cbe0, 
+  cg_list = {
+    next = 0xccc284c4, 
+    prev = 0xccc284c4
+  }, 
+  robust_list = 0x0, 
+  pi_state_list = {
+    next = 0xccc284d0, 
+    prev = 0xccc284d0
+  }, 
+  pi_state_cache = 0x0, 
+  fs_excl = {
+    counter = 0
+  }, 
+  rcu = {
+    next = 0x0, 
+    func = 0
+  }, 
+  splice_pipe = 0x0, 
+  dirties = {
+    events = 0, 
+    shift = 0, 
+    period = 0, 
+    lock = {
+      raw_lock = {
+        slock = 0
+      }
+    }
+  }, 
+  latency_record_count = 0, 
+  latency_record = {{
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }, {
+      backtrace = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 
+      count = 0, 
+      time = 0, 
+      max = 0
+    }}
+}
