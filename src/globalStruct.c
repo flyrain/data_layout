@@ -682,6 +682,7 @@ void print_graph(cluster src_cluster, cluster target_cluster,
     unsigned base_addr = g_array_index(data_structs, unsigned, 0);
     unsigned pre_offset = 0;
 
+    unsigned curr_struct_addr = 0;
     for (; pageStart <= src_cluster.end; pageStart += 0x1000) {
         if (!isPageExist(pageStart, mem1)
             || !isPageExist(pageStart, mem2))
@@ -706,10 +707,10 @@ void print_graph(cluster src_cluster, cluster target_cluster,
             int size = next_struct - curr_struct;
 
             if (virAddr >= curr_struct) {
-                //printf("%d %x %x %d\n", struct_index, curr_struct, offset,
-                //         size);
-
-                // printf("%x %d\n", offset,size);
+                // printf("%d %x %x %d\n", struct_index, curr_struct, offset,
+                //           size);
+                curr_struct_addr = curr_struct;
+                printf("%x %d\n", offset, size);
                 struct_index++;
 
                 if (struct_index >= len)
@@ -735,18 +736,26 @@ void print_graph(cluster src_cluster, cluster target_cluster,
                     int same = (value1 == value2);
                     if (same == 1) {
                         same_count++;
-                        //           printf("%x --> %x\t", virAddr, value1);
-                        int offset = value1 - virAddr;
-                        if (offset > 4096 || offset < -4096)
-                            find_data_struct(data_structs, value1);
-                        else {
-                            if (offset > 0)
-                                printf("x= *x - %d\n", offset);
-                            if (offset == 0)
-                                printf("x= *x\n");
-                            if (offset < 0)
-                                printf("x= *x + %d\n", -offset);
-                        }
+                        //                        printf("%x --> %x\n", virAddr, value1);
+                        int inter_offset = virAddr - curr_struct_addr;
+						unsigned abs_offset = virAddr - base_addr;
+                        printf("pointer: %d %x\n", inter_offset,
+                               abs_offset);
+                        /*
+                           int offset = value1 - virAddr;
+                           if (offset > 4096 || offset < -4096)
+                           find_data_struct(data_structs, value1);
+                           else {
+
+                           if (offset > 0)
+                           printf("x= *x - %d\n", offset);
+                           if (offset == 0)
+                           printf("x= *x\n");
+                           if (offset < 0)
+                           printf("x= *x + %d\n", -offset);
+
+                           }
+                         */
                     }
 
                     count++;
@@ -835,13 +844,12 @@ int pointer_match(unsigned vAddr, Mem * mem1, Mem * mem2,
             pointsMatch++;
             if (value1 != 0 && value2 != 0) {
                 (*not_match_no) = 0;    //reset pointNotMatch, since strong match
-				printf("%x\n", virAddr);
+                printf("%x\n", virAddr);
                 //printf("%x %x %x %d\n", virAddr, value1, value2,
-				//     value1 == value2);
+                //     value1 == value2);
             }
             continue;
         }
-		
         //value1 not equals to value2
         if (value1 != value2) {
             if ((isKernelAddr(value1, mem1)
