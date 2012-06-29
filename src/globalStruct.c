@@ -415,8 +415,8 @@ unsigned findLoop(cluster cluster, Mem * mem1, Mem * mem2)
             unsigned value2 =
                 *((unsigned *) ((unsigned) mem2->mem + pAddr2));
 
-            if (isKernelAddress(value1, mem1)
-                && isKernelAddress(value2, mem2)) {
+            if (isKernelAddr(value1, mem1)
+                && isKernelAddr(value2, mem2)) {
 
                 if ((value1 & (0xfff)) != (value2 & (0xfff)))
                     continue;
@@ -533,8 +533,8 @@ GArray *print_all_pointers(cluster src_cluster, cluster target_cluster,
             unsigned value2 =
                 *((unsigned *) ((unsigned) mem2->mem + pAddr2));
 
-            if (isKernelAddress(value1, mem1)
-                && isKernelAddress(value2, mem2)) {
+            if (isKernelAddr(value1, mem1)
+                && isKernelAddr(value2, mem2)) {
                 if (value1 >= target_cluster.start
                     && value1 <= target_cluster.end
                     && value2 >= target_cluster.start
@@ -559,8 +559,14 @@ GArray *print_all_pointers(cluster src_cluster, cluster target_cluster,
 //find the readonly area
 cluster findreadonlyarea(Mem * mem, Mem * mem2)
 {
+    cluster max_cluster;
     cluster src_cluster;
-    unsigned pageStart = 0xc0000000;
+	src_cluster.start = 0;
+	src_cluster.end = 0;
+
+	int max_page_count =0;
+    unsigned pageStart = 0x80000000;
+	//	    unsigned pageStart = 0xc0000000;
     unsigned pageEnd = 0xffffe000;
     int readonly = 0;
     for (; pageStart <= pageEnd; pageStart += 0x1000) {
@@ -580,23 +586,39 @@ cluster findreadonlyarea(Mem * mem, Mem * mem2)
         //if this page is system, global,read only
         if (pAddr1 >= 0 && pAddr1 < mem->mem_size && us == 0
             && g == 256 && rw == 0) {
-            // printf("%x readonly  readonly %d\n", pageStart,readonly);
+            
             if (readonly == 0) {
+			  int page_count = (src_cluster.end - src_cluster.start )/0x1000;
+			  if(page_count > max_page_count){
+			    max_cluster.start = src_cluster.start;
+				max_cluster.end = src_cluster.end;
+				max_page_count = page_count;
+			  }
+			  printf("start %x end %x size is %d\n", src_cluster.start, src_cluster.end,page_count);
                 src_cluster.start = pageStart;
                 readonly = 1;
             }
+			//			printf("%x readonly\n", pageStart);
         } else {
             // printf("%x writable readonly %d\n", pageStart,readonly);
             if (readonly == 1) {
                 src_cluster.end = pageStart - 0x1000;
                 readonly = 0;
-                break;
+				//   break;
             }
         }
     }
-    printf("read only area start %x, end %x\n", src_cluster.start,
-           src_cluster.end);
-    return src_cluster;
+		  int page_count = (src_cluster.end - src_cluster.start )/0x1000;
+			  if(page_count > max_page_count){
+			    max_cluster.start = src_cluster.start;
+				max_cluster.end = src_cluster.end;
+				max_page_count = page_count;
+			  }
+	
+	
+    printf("max read only area start %x, end %x, size %d\n", max_cluster.start,
+           max_cluster.end,(max_cluster.end - max_cluster.start )/0x1000);
+    return max_cluster;
 }
 
 
@@ -727,8 +749,8 @@ void print_graph(cluster src_cluster, cluster target_cluster,
             unsigned value2 =
                 *((unsigned *) ((unsigned) mem2->mem + pAddr2));
 
-            if (isKernelAddress(value1, mem1)
-                && isKernelAddress(value2, mem2)) {
+            if (isKernelAddr(value1, mem1)
+                && isKernelAddr(value2, mem2)) {
                 if (value1 >= target_cluster.start
                     && value1 <= target_cluster.end
                     && value2 >= target_cluster.start
@@ -775,6 +797,7 @@ void build_graph(Mem * mem1, Mem * mem2)
 {
     //1
     cluster src_cluster = findreadonlyarea(mem1, mem2);
+
     cluster targetcluster;
     targetcluster.start = src_cluster.end + 0x1000;
     //2
@@ -805,7 +828,7 @@ int isKernelAddr(unsigned vaddr, Mem * mem)
 
     //normal pointer
     unsigned kernleStartAddr;
-    kernleStartAddr = 0xc0000000;
+    kernleStartAddr = 0x80000000;
     if (vaddr > kernleStartAddr) {
         unsigned pAddr = vtop(mem->mem, mem->mem_size, mem->pgd, vaddr);
         if (pAddr > 0 && pAddr < mem->mem_size)

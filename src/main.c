@@ -86,10 +86,10 @@ void genSignature(char *snapshot1)
 
     //traverse memory
     if (mem1 != NULL) {
-      //  build_graph(mem1, mem2);
+        build_graph(mem1, mem2);
 
 //              findGlobalStruct(mem1);
-              compareTwoSnapshot(mem1,mem2);
+//              compareTwoSnapshot(mem1,mem2);
 //              compareThreeSnapshot(mem1,mem2,mem3);
 //              searchGlobal(mem1,mem2);
     }

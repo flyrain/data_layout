@@ -1,0 +1,188 @@
+<html>
+<head>
+<title> Page Directory Entry and Page Table Entry i386 Windows XP (SP2)</title>
+<META HTTP-EQUIV="Pragma" CONTENT="no-cache">
+<META HTTP-EQUIV="Expires" CONTENT="-1">
+</head>
+
+<body>
+<br>
+<h2> Page Directory Entry and Page Table Entry i386 Windows XP (SP2) </h2>
+<br><br>
+<h3> Virtual Memory - Intel official documentation</h3>
+<img src="VM.png" alt="Virtual Memory - Intel">
+<br><br><br>
+
+<h3> WinDbg and !pte analyze </h3>
+<pre><code>
+kd&gt !pte 0
+               VA 00000000
+PDE at   C0300000        PTE at C0000000
+contains 027A0067      contains 00000000
+pfn 27a0 ---DA--UWEV    
+
+kd&gt !pte 1000
+               VA 00001000
+PDE at   C0300000        PTE at C0000004
+contains 027A0067      contains 00000000
+pfn 27a0 ---DA--UWEV    
+
+kd&gt !pte 50001
+               VA 00050001
+PDE at   C0300000        PTE at C0000140
+contains 027A0067      contains 00000000
+pfn 27a0 ---DA--UWEV    
+
+kd&gt !pte 150002
+               VA 00150002
+PDE at   C0300000        PTE at C0000540
+contains 027A0067      contains 00000000
+pfn 27a0 ---DA--UWEV    
+
+kd&gt !pte 01150022
+               VA 01150022
+PDE at   C0300010        PTE at C0004540
+contains 00000000
+
+kd&gt !pte 150022
+               VA 00150022
+PDE at   C0300000        PTE at C0000540
+contains 027A0067      contains 00000000
+pfn 27a0 ---DA--UWEV    
+
+kd&gt !pte 1150022
+               VA 01150022
+PDE at   C0300010        PTE at C0004540
+contains 00000000
+
+kd&gt !pte 2150022
+               VA 02150022
+PDE at   C0300020        PTE at C0008540
+contains 00000000
+
+kd&gt !pte 2350022
+               VA 02350022
+PDE at   C0300020        PTE at C0008D40
+contains 00000000
+
+kd&gt !pte FFFFFFF
+               VA FFFFFFFF
+PDE at   C0300FFC        PTE at C03FFFFC
+contains 00000000
+
+
+</code></pre>
+<br><br>
+<h3> Windows XP (sp2 - i386) Page Table address (WinDbg analyze, Windows Internals MS press)</h3>
+Page Directory starts at <B><code>  0xC030 0000  </code></B> virtual address on i386.<br>
+Page Table starts at <B><code>  0xC000 0000  </code></B> virtual address on i386.<br>
+<br>
+
+<h3> Conversion VirtualAddress -> PDE, PTE address </h3>
+<pre><code>
+PDEaddress = ((VirtualAddress>>20) & (~0x3) ) + 0xC0300000
+PTEaddress = ((VirtualAddress>>10) & (~0x3) )+ 0xC0000000
+
+<B> ~0x3 - correction from !pte FFFFFFFF and correct aligment (4Bytes)</B>
+
+</code></pre>
+<br><br>
+
+<h3> Intel Page Directory Entry and Page Table Entry structures </h3>
+<br>
+<img src="PdePte.png" alt="Page Directory structure">
+<br><br>
+
+<h3>The "C" structure: </h3>
+<pre><code>
+
+typedef struct _PTE
+{
+    ULONG Present           :1;
+    ULONG Writable          :1;
+    ULONG Owner             :1;
+    ULONG WriteThrough      :1;
+    ULONG CacheDisable      :1;
+    ULONG Accessed          :1;
+    ULONG Dirty             :1;
+    ULONG LargePage         :1;
+    ULONG Global            :1;
+    ULONG ForUse1           :1;
+    ULONG ForUse2           :1;
+    ULONG ForUse3           :1;
+    ULONG PageFrameNumber   :20;
+} PTE, *PPTE;
+
+</code></pre>
+
+<h3> IsAddressValid - kernel mode function</h3>
+<pre><code>
+
+#define PDE_OFFSET 0xC0300000
+#define PTE_OFFSET 0xC0000000
+
+#add correction (~0x3) also here!
+#define PDEaddr(VirtualAddress) ( (PPTE) (( ((ULONG) VirtualAddress) >> 20) + PDE_OFFSET) )
+#define PTEaddr(VirtualAddress) ( (PPTE) (( ((ULONG) VirtualAddress) >> 10) + PTE_OFFSET) )
+
+BOOLEAN
+IsAddressValid(PVOID VirtualAddress)
+{
+	PPTE ptr;
+	
+	ptr = PDEaddr(VirtualAddress);
+	if( ptr->Present == 0 )
+	{
+		return FALSE;
+	}
+	
+	if( ptr->LargePage != 0 )
+	{
+		return TRUE;
+	}
+	
+	ptr = PTEaddr(VirtualAddress);
+	if( ptr->Present == 0)
+	{
+		return FALSE;
+	}
+	
+	return TRUE;
+}
+
+try
+{
+// try will work for UserMode memory and PagedPool
+// Page fault will raise an exception in that case.
+//
+// For nonpaged memory we should use IsAddressValid
+// function - PAGE_FAULT_IN_NONPAGED_AREA protection
+
+	if( KeNumberProcessor == 1 )
+	{
+	  KeRaiseIrql(HIGH_LEVEL, &oldIrql); 
+	  if( IsAddressValid( address ) )
+	  {
+		// Read memory
+		status = *( (ULONG*) address );
+	  }
+	  KeLowerIrql(oldIrql);
+	}
+}
+except(EXCEPTION_EXECUTE_HANDLER)
+{
+	KeLowerIrql(oldIrql);
+	status = GetExceptionCode();
+}
+
+</code></pre>
+<br><br><br>
+<a href="mailto: janusz.dziedzic@gmail.com">Copyrights (c) by Janusz Dziedzic</a>
+</body>
+<head>
+<META HTTP-EQUIV="Pragma" CONTENT="no-cache">
+<META HTTP-EQUIV="Expires" CONTENT="-1">
+</head>
+
+</html>
+
