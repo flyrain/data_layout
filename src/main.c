@@ -78,7 +78,7 @@ Mem *initMem(char *snapshot)
 void genSignature(char *snapshot1)
 {
 
-    //xed2_init();
+    xed2_init();
 
     Mem *mem1 = initMem(snapshot1);
     Mem *mem2 = initMem(snapshot2);
@@ -93,6 +93,7 @@ void genSignature(char *snapshot1)
 //              compareThreeSnapshot(mem1,mem2,mem3);
 //              searchGlobal(mem1,mem2);
     }
+	
     //free memory
     free_mem(mem1);
     free_mem(mem2);

@@ -11,6 +11,7 @@
 #ifndef MEMORY_
 #define MEMORY_
 #define FINGERPRINT_NO 50
+#define PAGE_SIZE 4096          //assume page size was 4k
 typedef struct mem{
 	char * mem;
 	int mem_size;

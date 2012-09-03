@@ -6,6 +6,7 @@
 
 #include <xed-interface.h>
 #include "memory.h"
+#include <glib.h>
 
 //#define DEBUG_MODHASH
 xed_decoded_inst_t xedd_g;
@@ -129,7 +130,7 @@ int canDisasn(Mem * mem, unsigned char *data, unsigned offset,
         if (xed_error == XED_ERROR_NONE) {
             const xed_inst_t *xi = xed_decoded_inst_inst(&xedd_g);
             size = xed_decoded_inst_get_length(&xedd_g);
-            xed_iclass_enum_t opcode =
+			 xed_iclass_enum_t opcode =
                 xed_decoded_inst_get_iclass(&xedd_g);
 
             if (opcode == XED_ICLASS_RET_NEAR || opcode == XED_ICLASS_NOP)
@@ -139,12 +140,6 @@ int canDisasn(Mem * mem, unsigned char *data, unsigned offset,
             if (size == 3 && data[offset] == 0x8d
                 && data[offset + 1] == 0x49 && data[offset + 2] == 0x00)
                 success = 0;
-//                      if(opcode == XED_ICLASS_JMP && size ==5&&((offset+size)&0x3)==0){
-//                              unsigned pc = *(unsigned *)(data+offset+size);
-//                              if(pc>=0x80000000)
-//                                      if(vtop(mem->mem, mem->mem_size, mem->pgd, pc)!=-1)
-//                                              success=1;
-//                      }
         } else
             break;
 
@@ -153,6 +148,263 @@ int canDisasn(Mem * mem, unsigned char *data, unsigned offset,
 
     return success;
 }
+
+
+unsigned int mininum_pc =0xffffffff;
+//by Yufei Gu, 8/29/12
+//disassemble one code page and get memory address in oprand of all instructions
+int disassemble_getmem_addr(Mem * mem, unsigned char *data,
+                            unsigned start_addr, cluster target_cluster,
+                            GArray * pointers, int page_no)
+{
+    unsigned size;
+    unsigned offset = 0;
+    char str[128];
+    while (offset < PAGE_SIZE) {
+        xed_decoded_inst_zero_set_mode(&xedd_g, &dstate);
+        //      printf("%d %d 0x%x\n ", offset, len, data);
+        xed_error_enum_t xed_error = xed_decode(&xedd_g,
+                                                STATIC_CAST(const
+                                                            xed_uint8_t *,
+                                                            data + offset),
+                                                15);
+        if (xed_error == XED_ERROR_NONE) {
+            const xed_inst_t *xi = xed_decoded_inst_inst(&xedd_g);
+
+            unsigned int addr_width = 0;
+            unsigned int addr_oprand = 0;
+            //index is 0, print the address
+            addr_oprand = (unsigned int)
+                xed_decoded_inst_get_memory_displacement(&xedd_g, 0);
+            addr_width =
+                xed_decoded_inst_get_memory_displacement_width(&xedd_g, 0);
+            if (addr_width == 4 && addr_oprand >= target_cluster.start
+                && addr_oprand <= target_cluster.end) {
+                printf("%x\n", addr_oprand);
+                g_array_append_val(pointers, addr_oprand);
+            }
+            //                      printf ("addr_oprand 0 %x %x\t",addr_width,addr_oprand);
+            xed_decoded_inst_dump_intel_format(&xedd_g, str, sizeof(str),
+                                               0);
+            size = xed_decoded_inst_get_length(&xedd_g);
+            xed_iclass_enum_t opcode =
+                xed_decoded_inst_get_iclass(&xedd_g);
+
+
+			//			printf("str: %s \n", str);
+            if (page_no >= 0) {
+                unsigned int i;
+				printf("0x%08x: ", offset + start_addr);
+                for (i = 0; i < size; i++) {
+				  printf("%02x ", data[offset + i]);
+                }
+                //padding
+                for (; i < 8; i++) {
+				  printf("   ");
+                }
+
+                const xed_operand_t *op0 = xed_inst_operand(xi, 0);
+                xed_operand_enum_t op_name0 = xed_operand_name(op0);
+                uint32_t branch;
+
+                if (operand_is_relbr(op_name0, &branch)) {
+                    char opname[32];
+                    strcpy(opname, xed_iclass_enum_t2str(opcode));
+                    for (i = 0; i < strlen(opname); i++)
+                        opname[i] = opname[i] - ('A' - 'a');
+                    opname[4] = '\0';
+                    uint32_t pc = start_addr + offset + size + branch;
+                    if (pc >= target_cluster.start
+                        && pc <= target_cluster.end)
+					  if(pc < mininum_pc ){
+						mininum_pc = pc;
+						printf("mininum_pc 0x%x\n", mininum_pc);
+					  }
+					  //                                      printf("pc: 0x%08x\n", pc);
+                        sprintf(str, "%s 0x%08x", opname, pc);
+
+                }
+				printf("%s\n", str);
+            }
+        }
+        offset = offset + size;
+    }
+    return 0;
+}
+
+//Added by Yufei Gu, 8/31/12
+//Disassemble one function and get memory address in oprand of all instructions
+int disasn_func(Mem * mem, unsigned char *data, unsigned *poffset,
+                   unsigned len, int is_print, unsigned vaddr,
+                   unsigned calledpage[],  GArray *pointers, cluster target_cluster)
+{
+  int is_replace =0;
+    unsigned size;
+    unsigned offset = *poffset;
+    int success = 0;
+    char str[128];
+
+    while (offset < len && !success) {
+        xed_decoded_inst_zero_set_mode(&xedd_g, &dstate);
+        xed_error_enum_t xed_error = xed_decode(&xedd_g,
+                                                STATIC_CAST(const
+                                                            xed_uint8_t *,
+                                                            data + offset),
+                                                15);
+        if (xed_error == XED_ERROR_NONE) {
+            const xed_inst_t *xi = xed_decoded_inst_inst(&xedd_g);
+            size = xed_decoded_inst_get_length(&xedd_g);
+            xed_iclass_enum_t opcode =
+                xed_decoded_inst_get_iclass(&xedd_g);
+
+			//function close
+            if (opcode == XED_ICLASS_RET_NEAR
+                || opcode == XED_ICLASS_RET_FAR
+                || opcode == XED_ICLASS_INT3)
+                success = 1;
+            if (opcode == XED_ICLASS_JMP)
+                success = 1;
+            if (size == 3 && data[offset] == 0x8d
+                && data[offset + 1] == 0x49 && data[offset + 2] == 0x00)
+                success = 1;
+        } else
+            break;
+
+        offset = offset + size;
+    }
+
+    if (success == 0)
+        return -1;
+
+	//global variable newstart
+    if (newstart == 1) {
+        newstart = 0;
+        ranges[++range_index].start = vaddr;
+        ranges[range_index].end = vaddr + 4095;
+        ranges[range_index].disasBytes = 0;
+    }
+
+    offset = *poffset;
+    while (offset < len) {
+        xed_decoded_inst_zero_set_mode(&xedd_g, &dstate);
+        xed_error_enum_t xed_error = xed_decode(&xedd_g,
+                                                STATIC_CAST(const
+                                                            xed_uint8_t *,
+                                                            data + offset),
+                                                15);
+        if (xed_error == XED_ERROR_NONE) {
+            const xed_inst_t *xi = xed_decoded_inst_inst(&xedd_g);
+
+			//-------------add by yufei,begin--------------------
+			unsigned int addr_width = 0;
+            unsigned int addr_oprand = 0;
+            //index is 0, print the address
+            addr_oprand = (unsigned int)
+                xed_decoded_inst_get_memory_displacement(&xedd_g, 0);
+            addr_width =
+                xed_decoded_inst_get_memory_displacement_width(&xedd_g, 0);
+			//	printf ("addr_width %d, value %x\n", addr_width, addr_oprand);
+            if (addr_width == 4 && addr_oprand >= target_cluster.start
+                && addr_oprand <= target_cluster.end) {
+			      printf("addr_oprand %x\n", addr_oprand);
+			    g_array_append_val(pointers, addr_oprand);
+            }
+			//-------------add by yufei,end--------------------
+			
+            xed_decoded_inst_dump_intel_format(&xedd_g, str,
+                                               sizeof(str), 0);
+            size = xed_decoded_inst_get_length(&xedd_g);
+            xed_iclass_enum_t opcode =
+                xed_decoded_inst_get_iclass(&xedd_g);
+
+					printf("%s\n",str);
+
+			
+
+			
+            if (is_replace)
+                is_dism[offset / PAGE_SIZE] = 1;
+
+			
+            if (is_print) {
+                unsigned int i;
+                fprintf(out_code, "0x%08x: ", offset + vaddr);
+                for (i = 0; i < size; i++)
+                    fprintf(out_code, "%02x ", data[offset + i]);
+                for (; i < 8; i++)
+                    fprintf(out_code, "   ");
+                const xed_operand_t *op0 = xed_inst_operand(xi, 0);
+                xed_operand_enum_t op_name0 = xed_operand_name(op0);
+                uint32_t branch;
+                if (operand_is_relbr(op_name0, &branch)) {
+                    char opname[32];
+                    strcpy(opname, xed_iclass_enum_t2str(opcode));
+                    for (i = 0; i < strlen(opname); i++)
+                        opname[i] = opname[i] - ('A' - 'a');
+                    opname[4] = '\0';
+                    uint32_t pc = vaddr + offset + size + branch;
+                    sprintf(str, "%s 0x%08x", opname, pc);
+
+                }
+                fprintf(out_code, "%s\n", str);
+            }
+
+            if (!is_replace && opcode == XED_ICLASS_CALL_NEAR
+                && data[offset] == 0xe8) {
+                unsigned pc =
+                    vaddr + offset + 5 + *(unsigned *) (data + offset + 1);
+                unsigned paddr =
+                    vtop(mem->mem, mem->mem_size, mem->pgd, pc);
+                if (paddr != -1) {
+
+                    if (ranges[range_index].end < pc) {
+
+                        int pageSize = 4096;
+                        int pageIndex = paddr / pageSize;
+                        char *page =
+                            (char *) ((unsigned) mem->mem +
+                                      pageIndex * pageSize);
+
+                        if (canDisasn
+                            (mem, page, paddr - pageIndex * pageSize,
+                             pageSize, pc) == 0) {
+
+                            ranges[range_index].end =
+                                pc & 0xfffff000 + pageSize - 1;
+                            ranges[range_index].len =
+                                ranges[range_index].end -
+                                ranges[range_index].start + 1;
+                        }
+                    }
+                }
+            }
+
+            if (size == 3 && data[offset] == 0x8d
+                && data[offset + 1] == 0x49 && data[offset + 2] == 0x00) {
+                *poffset = offset + 3;
+                return 0;
+            }
+
+
+            if (opcode == XED_ICLASS_INT3
+                || opcode == XED_ICLASS_RET_NEAR
+                || opcode == XED_ICLASS_RET_FAR
+                || (opcode == XED_ICLASS_JMP)) {
+                *poffset = offset + size;
+                if (is_print)
+                    fprintf(out_code, "\n\n");
+
+                return 0;
+            }
+
+        }
+
+        offset = offset + size;
+    }
+
+    return 0;
+}
+
 
 int disasn_replace(Mem * mem, unsigned char *data, unsigned *poffset,
                    unsigned len, int is_print, unsigned vaddr,
@@ -177,6 +429,7 @@ int disasn_replace(Mem * mem, unsigned char *data, unsigned *poffset,
             xed_iclass_enum_t opcode =
                 xed_decoded_inst_get_iclass(&xedd_g);
 
+			//function close
             if (opcode == XED_ICLASS_RET_NEAR
                 || opcode == XED_ICLASS_RET_FAR
                 || opcode == XED_ICLASS_INT3)
@@ -186,12 +439,6 @@ int disasn_replace(Mem * mem, unsigned char *data, unsigned *poffset,
             if (size == 3 && data[offset] == 0x8d
                 && data[offset + 1] == 0x49 && data[offset + 2] == 0x00)
                 success = 1;
-//                      if(opcode == XED_ICLASS_JMP && size ==5&&((offset+size)&0x3)==0){
-//                              unsigned pc = *(unsigned *)(data+offset+size);
-//                              if(pc>=0x80000000)
-//                                      if(vtop(mem->mem, mem->mem_size, mem->pgd, pc)!=-1)
-//                                              success=1;
-//                      }
         } else
             break;
 
@@ -201,6 +448,7 @@ int disasn_replace(Mem * mem, unsigned char *data, unsigned *poffset,
     if (success == 0)
         return -1;
 
+	//global variable newstart
     if (newstart == 1) {
         newstart = 0;
         ranges[++range_index].start = vaddr;
@@ -219,14 +467,15 @@ int disasn_replace(Mem * mem, unsigned char *data, unsigned *poffset,
                                                 15);
         if (xed_error == XED_ERROR_NONE) {
             const xed_inst_t *xi = xed_decoded_inst_inst(&xedd_g);
-            xed_decoded_inst_dump_intel_format(&xedd_g, str, sizeof(str),
-                                               0);
+            xed_decoded_inst_dump_intel_format(&xedd_g, str,
+                                               sizeof(str), 0);
             size = xed_decoded_inst_get_length(&xedd_g);
             xed_iclass_enum_t opcode =
                 xed_decoded_inst_get_iclass(&xedd_g);
 
             if (is_replace)
-                is_dism[offset / 4096] = 1;
+                is_dism[offset / PAGE_SIZE] = 1;
+
 
             if (is_print) {
                 unsigned int i;
@@ -258,22 +507,19 @@ int disasn_replace(Mem * mem, unsigned char *data, unsigned *poffset,
                 unsigned paddr =
                     vtop(mem->mem, mem->mem_size, mem->pgd, pc);
                 if (paddr != -1) {
-                    //                      printf("call (%x, %x  %x)\n", vaddr+offset, pc,*(unsigned *) (data + offset + 1));
+
                     if (ranges[range_index].end < pc) {
-                        //                      printf("dis call (%x, %x  %x)\n", vaddr+offset, pc,*(unsigned *) (data + offset + 1));
+
                         int pageSize = 4096;
                         int pageIndex = paddr / pageSize;
                         char *page =
                             (char *) ((unsigned) mem->mem +
                                       pageIndex * pageSize);
-//                                              unsigned  i=pc&0xfff;
-//                                              if ((i<=4093&&page[i] == 0x55 && page[i + 1] == 0x8b && page[i + 2] == 0xec)
-//                                                                              || (i<=4093&&page[i] == 0x55 && page[i + 1] == 0x89
-//                                                                                              && page[i + 2] == 0xe5)) {
+
                         if (canDisasn
                             (mem, page, paddr - pageIndex * pageSize,
                              pageSize, pc) == 0) {
-//                                              if(calledpage[pageIndex]==1){
+
                             ranges[range_index].end =
                                 pc & 0xfffff000 + pageSize - 1;
                             ranges[range_index].len =
@@ -312,7 +558,8 @@ int disasn_replace(Mem * mem, unsigned char *data, unsigned *poffset,
                     data[offset + size - 8] = '\0';
                 }
             }
-            if (opcode == XED_ICLASS_INT3 || opcode == XED_ICLASS_RET_NEAR
+            if (opcode == XED_ICLASS_INT3
+                || opcode == XED_ICLASS_RET_NEAR
                 || opcode == XED_ICLASS_RET_FAR
                 || (opcode == XED_ICLASS_JMP)) {
                 *poffset = offset + size;
@@ -390,59 +637,6 @@ void code_preprocess(Mem * mem, unsigned char *page, unsigned size,
     memcpy(dsmPage, is_dism, size / 0x1000 * sizeof(int));
 }
 
-/*
-unsigned total = 0;
-int code_preprocess(Mem *mem, unsigned vaddr, unsigned pageSize, cluster c) {
-	int i, offset;
-	unsigned char * inst;
-
-	unsigned paddr = vtop(mem->mem, mem->mem_size, mem->pgd, vaddr);
-	if (paddr == -1)
-		return -1;
-
-	int pageIndex1 = paddr / pageSize;
-	int pageIndex2;
-	unsigned char * page = (char *) ((unsigned) mem->mem + pageIndex1 * pageSize);
-
-	for (i = 0; i < pageSize - 5; i++) {
-		if (page[i] == 0xe8 && (page[i + 4] == 0xff || page[i + 4] == 0)) {
-			//get the call pc
-			unsigned pc2 = (vaddr & (~(pageSize - 1)));
-			unsigned pc1 = pc2 + i + 5;
-			unsigned pc = pc1 + *(unsigned *) (page + i + 1);
-
-			if(pc<c.start || pc >c.end)
-				continue;
-			unsigned phaddr = vtop(mem->mem, mem->mem_size, mem->pgd, pc);
-			if (phaddr == -1 || phaddr >= mem->mem_size)
-				continue;
-
-			inst = (unsigned char *) ((unsigned) mem->mem + phaddr);
-
-			//check wether is "push ebp; mov esp, ebp" instruction  //linux
-			//windows: mov esi, esi  or mov %edi,%edi
-			if (
-					(*inst == 0x8b && *(inst + 1) == 0xff && *(inst + 2) == 0x55 && *(inst + 3) == 0x8b
-					&& *(inst + 4) == 0xec)
-					|| (*inst == 0x55 && *(inst + 1) == 0x89 && *(inst + 2) == 0xe5)
-				    || 	(*inst == 0x55 && *(inst + 1) == 0x8b && *(inst + 2) == 0xec)
-				)
-				{
-					
-				return 0;
-//				//	sameSharp[pageIndex1]=1;
-//				if (canDisasn(mem, inst - (phaddr & 0xfff), phaddr & 0xfff, pageSize, pc) == 0) {
-//					pageIndex2 = phaddr / pageSize;
-//					sameSharp[pageIndex2] = 1;
-//				}
-//				//	printf("call (%x, %x)\n", vaddr+i, pc);
-			}
-		}
-	}
-	return -1;
-}
-*/
-
 /* if this page is kernel code,than return 0, otherwise return -1
 */
 int find_kernel(Mem * mem, unsigned vaddr, unsigned pageSize)
@@ -463,23 +657,23 @@ int find_kernel(Mem * mem, unsigned vaddr, unsigned pageSize)
     sysexit = 0;
 
     int sys_instr_cnt = 0;
-    int cr3 =0;
-    int clts =0;
-    int rdmsr =0;
-    int rdtsc =0;
-    int wrmsr =0;
-    int wbinvd =0;
+    int cr3 = 0;
+    int clts = 0;
+    int rdmsr = 0;
+    int rdtsc = 0;
+    int wrmsr = 0;
+    int wbinvd = 0;
     for (i = 0; i < pageSize - 6; i++) {
 
         //mov EAX,CR3;
         //mov CR3,EAX;
 
-        if (page[i] == 0x0f && page[i + 1] == 0x20 && page[i + 2] == 0xd8
-            && page[i + 3] == 0x0f && page[i + 4] == 0x22
-            && page[i + 5] == 0xd8) {
+        if (page[i] == 0x0f && page[i + 1] == 0x20
+            && page[i + 2] == 0xd8 && page[i + 3] == 0x0f
+            && page[i + 4] == 0x22 && page[i + 5] == 0xd8) {
             puts("cr3");
             //sys_instr_cnt++;
-	    cr3 =1;
+            cr3 = 1;
             return 0;
         }
         //hlt,  problem: too short
@@ -495,45 +689,45 @@ int find_kernel(Mem * mem, unsigned vaddr, unsigned pageSize)
         //}
 
         //clts
-        if (page[i] == 0x0f && page[i + 1] == 0x06 && page[i+2]!= 0x00) {
+        if (page[i] == 0x0f && page[i + 1] == 0x06 && page[i + 2] != 0x00) {
             //puts("clts");
-	    //            sys_instr_cnt++;
-	    clts =1;
+            //            sys_instr_cnt++;
+            clts = 1;
             //            return 0;
         }
         //wbinvd
-        if (page[i] == 0x0f && page[i + 1] == 0x09 && page[i+2]!= 0x00) {
+        if (page[i] == 0x0f && page[i + 1] == 0x09 && page[i + 2] != 0x00) {
             //puts("wbinvd");
-	    //            sys_instr_cnt++;
-	    wbinvd =1;
+            //            sys_instr_cnt++;
+            wbinvd = 1;
             //            return 0;
         }
         //rdmsr
-        if (page[i] == 0x0f && page[i + 1] == 0x32 && page[i+2]!= 0x00) {
+        if (page[i] == 0x0f && page[i + 1] == 0x32 && page[i + 2] != 0x00) {
             //puts("rdmsr");
-	    //            sys_instr_cnt++;
-	    rdmsr =1;
+            //            sys_instr_cnt++;
+            rdmsr = 1;
             //            return 0;            return 0;
         }
         //wrmsr
-        if (page[i] == 0x0f && page[i + 1] == 0x30 && page[i+2]!= 0x00) {
+        if (page[i] == 0x0f && page[i + 1] == 0x30 && page[i + 2] != 0x00) {
             //puts("wrmsr");
-	    //            sys_instr_cnt++;
-	    wrmsr =1;
+            //            sys_instr_cnt++;
+            wrmsr = 1;
             //            return 0;
 
         }
         //rdtsc
-        if (page[i] == 0x0f && page[i + 1] == 0x31 && page[i+2]!= 0x00) {
+        if (page[i] == 0x0f && page[i + 1] == 0x31 && page[i + 2] != 0x00) {
             //puts("rdtsc");
             //sys_instr_cnt++;
-	    rdtsc =1;
+            rdtsc = 1;
             //            return 0;
         }
-	//if(cr3 == 1)
-	//return 0;
-	//	if(rdtsc + wrmsr + rdmsr + clts+ wbinvd +cr3 >= 2)
-	//return 0;
+        //if(cr3 == 1)
+        //return 0;
+        //      if(rdtsc + wrmsr + rdmsr + clts+ wbinvd +cr3 >= 2)
+        //return 0;
 
     }
     //    if (sys_instr_cnt > 1)
@@ -609,38 +803,6 @@ int find_kernel(Mem * mem, unsigned vaddr, unsigned pageSize)
 
 }
 
-//int code_preprocess(Mem *mem, unsigned vaddr, unsigned pageSize,
-//              int sameSharp[], unsigned virtualAddrs[]) {
-//      int i, offset;
-//      unsigned char * inst;
-//      int res = -1;
-//
-//      unsigned paddr = vtop(mem->mem, mem->mem_size, mem->pgd, vaddr);
-//      if (paddr == -1)
-//              return -1;
-//
-//      int pageIndex1 = paddr / pageSize;
-//      int pageIndex2;
-//      unsigned char * page = (char *) ((unsigned) mem->mem
-//                      + pageIndex1 * pageSize);
-//
-//      for (i = 0; i < pageSize - 5; i++) {
-//              if ((page[i] == 0x8b && page[i + 1] == 0xff && page[i + 2] == 0x55
-//                              && page[i + 3] == 0x8b && page[i + 4] == 0xec)
-//                              || (page[i] == 0x55 && page[i + 1] == 0x89
-//                                              && page[i + 2] == 0xe5)) {
-//
-//                      res = 0;
-//                      set_page(vaddr, pageIndex1, pageSize);
-//                      sameSharp[pageIndex1] = 1;
-//                      virtualAddrs[pageIndex1] = vaddr;
-//                      offset_insert(pageIndex1, i);
-//              }
-//      }
-//
-//      return res;
-//
-//}
 
 //determine if the page is code page by opcode "mov..."
 int is_code_page(Mem * mem, unsigned vaddr, unsigned pageSize,
@@ -718,7 +880,7 @@ unsigned page_init2(Mem * mem, char *page, int pageIndex, int pageSize,
 
 void page_init(Mem * mem, int pageIndex, int pageSize, int sameSharp[],
                int is_print, unsigned vaddr, unsigned calledpage[],
-               int is_replace)
+               GArray *pointers, cluster target_cluster)
 {
     unsigned i;
     char *page = (char *) ((unsigned) mem->mem + pageIndex * pageSize);
@@ -732,49 +894,47 @@ void page_init(Mem * mem, int pageIndex, int pageSize, int sameSharp[],
     for (next = offsets[pageIndex]; next != NULL; next = next->next) {
         offset = next->offset;
         if (offset > end) {
-            for (i = end; is_replace && i < offset; i++)
-                page[i] = '\0';
+		  //            for (i = end; is_replace && i < offset; i++)
+		  //    page[i] = '\0';
             end = offset;
-            if (disasn_replace
-                (mem, page, &end, pageSize, is_print, vaddr, calledpage,
-                 is_replace) == 0) {
+            if (disasn_func
+                (mem, page, &end, pageSize, is_print, vaddr,
+                 calledpage, pointers,target_cluster) == 0) {
                 ranges[range_index].disasBytes += end - offset;
-//                              printf("ranges[range_index].disasBytes:%d, %x\n",ranges[range_index].disasBytes,vaddr);
-//                              sameSharp[pageIndex] = 1;
             } else {
                 end = offset;
             }
         }
     }
-//      if (end > 0)
-//              sameSharp[pageIndex] = 1;
 
     if (end >= pageSize) {
         page_end[pageIndex + 1] = end - pageSize;
     }
 #ifdef DEBUG
     if (sameSharp[pageIndex] == 0)
-        printf("can't disassemble %d\n", pageIndex);
+      indent: Standard input: 831: Error:Unexpected end of file
+            printf("can't disassemble %d\n",
+                   pageIndex);
 #endif
-    for (i = end; is_replace && i < pageSize; i++)
-        page[i] = '\0';
+	//    for (i = end; is_replace && i < pageSize; i++)
+	//  page[i] = '\0';
 }
 
 void code_init(Mem * mem, unsigned vaddr, unsigned pageSize,
                int sameSharp[], unsigned virtualAddrs[], int is_print,
-               unsigned calledpage[], unsigned *codePageNo)
+               unsigned calledpage[], unsigned *codePageNo, GArray *pointers, cluster target_cluster)
 {
 
     if (newstart == 0 && vaddr > ranges[range_index].end) {
-        //printf("end is %x %x\n", vaddr, ranges[range_index].end);
+        printf("end is %x %x\n", vaddr, ranges[range_index].end);
         newstart = 1;
     }
-
+ 
     if (is_code_page(mem, vaddr, pageSize, virtualAddrs) == 0) {
         unsigned paddr = vtop(mem->mem, mem->mem_size, mem->pgd, vaddr);
         int pageIndex = paddr / pageSize;
         page_init(mem, pageIndex, pageSize, sameSharp, is_print, vaddr,
-                  calledpage, 0);
+                  calledpage, pointers, target_cluster);
         (*codePageNo)++;
     }
 }

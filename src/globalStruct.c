@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <glib.h>
 
-#define PAGE_SIZE 4096          //assume page size was 4k
+
 
 unsigned getMemValueByVirAddr(unsigned virAddr, Mem * mem)
 {
@@ -382,7 +382,6 @@ int isPageExist(unsigned pageStart, Mem * mem)
                          &ps);
 
     //if this page is system, global, keep it
-
     //    if (pAddr1 >= 0 && pAddr1 < mem->mem_size && us == 0 && g == 256 && rw ==0)
     if (pAddr1 >= 0 && pAddr1 < mem->mem_size && us == 0 && g == 256) {
         return 1;
@@ -390,6 +389,7 @@ int isPageExist(unsigned pageStart, Mem * mem)
         return 0;
 }
 
+//find the loop between readonly area and global data area
 unsigned findLoop(cluster cluster, Mem * mem1, Mem * mem2)
 {
     GArray *addresses = g_array_new(FALSE, FALSE, sizeof(unsigned));
@@ -505,12 +505,12 @@ int isKernelAddressOrZero(unsigned vaddr, Mem * mem)
 }
 
 //print all pointer in some area, offset and value of pointer
-GArray *print_all_pointers(cluster src_cluster, cluster target_cluster,
-                           Mem * mem1, Mem * mem2)
+GArray *get_all_pointers(cluster src_cluster, cluster target_cluster,
+                         Mem * mem1, Mem * mem2)
 {
     GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
     unsigned pageStart = src_cluster.start;
-    int count = 0, same_count = 0;
+    int page_no = 0, codePageNo = 0, count = 0, same_count = 0;
     // prinf("src_cluster.end %x\n",src_cluster.end);
 
     for (; pageStart <= src_cluster.end; pageStart += 0x1000) {
@@ -519,40 +519,73 @@ GArray *print_all_pointers(cluster src_cluster, cluster target_cluster,
             continue;
 
         unsigned vAddr = pageStart;
-        int j;
+        unsigned pAddr1 =
+            vtop(mem1->mem, mem1->mem_size, mem1->pgd, vAddr);
+        char *page = (char *) ((unsigned) mem1->mem + pAddr1);
 
-        for (j = 0; j < 4 * 1024; j += 4) {
-            unsigned virAddr = vAddr + j;
-            unsigned pAddr1 =
-                vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
-            unsigned value1 =
-                *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+		//print page number
+        page_no++;
+        printf("page %d start vaddr 0x%x\n", page_no, vAddr);
+		
+        //to print all reference to global data area
+		//---------------begin--------------
 
-            unsigned pAddr2 =
-                vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
-            unsigned value2 =
-                *((unsigned *) ((unsigned) mem2->mem + pAddr2));
-
-            if (isKernelAddr(value1, mem1)
-                && isKernelAddr(value2, mem2)) {
-                if (value1 >= target_cluster.start
-                    && value1 <= target_cluster.end
-                    && value2 >= target_cluster.start
-                    && value2 <= target_cluster.end) {
-                    int same = (value1 == value2);
-                    if (same == 1) {
-                        same_count++;
-                        g_array_append_val(pointers, value1);
-                    }
-                    //                    printf("%x,%x/%x %d\n", virAddr, value1, value2, same);
-                    count++;
-                }
-            }
+		int totalPageNumber = mem1->mem_size / PAGE_SIZE;   //assume that every page has 4k
+        int calledPages[totalPageNumber];
+        int dsmPages[totalPageNumber];
+        //record virtual address
+        unsigned virtualAddrs[totalPageNumber];
+		int i;
+        for (i = 0; i < totalPageNumber; i++) {
+            calledPages[i] = 0;
+            dsmPages[i] = 0;
+            virtualAddrs[i] = 0;
         }
+        code_init(mem1, vAddr, PAGE_SIZE, dsmPages, virtualAddrs, 0,
+                  calledPages, &codePageNo,pointers);
 
+		//----------------end--------------------		
+		
+		//        disassemble_getmem_addr(mem1, page, vAddr, target_cluster,
+		//                  pointers, page_no);
+
+
+		/*
+           int j;
+
+           for (j = 0; j < 4 * 1024; j += 4) {
+           unsigned virAddr = vAddr + j;
+           unsigned pAddr1 =
+           vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
+           unsigned value1 =
+           *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+
+           unsigned pAddr2 =
+           vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
+           unsigned value2 =
+           *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+
+           if (isKernelAddr(value1, mem1)
+           && isKernelAddr(value2, mem2)) {
+           if (value1 >= target_cluster.start
+           && value1 <= target_cluster.end
+           && value2 >= target_cluster.start
+           && value2 <= target_cluster.end) {
+           int same = (value1 == value2);
+           if (same == 1) {
+           same_count++;
+           g_array_append_val(pointers, value1);
+           }
+           printf("%x,%x/%x %d\n", virAddr, value1, value2, same);
+           count++;
+           }
+           }
+           }
+         */
     }
-    printf("pointer number is %d, same no. %d\n", count, same_count);
-
+    //    printf("pointer number is %d, same no. %d\n", count, same_count);
+    extern unsigned int mininum_pc;
+    printf("mininum pc is %x\n", mininum_pc);
     return pointers;
 }
 
@@ -561,12 +594,12 @@ cluster findreadonlyarea(Mem * mem, Mem * mem2)
 {
     cluster max_cluster;
     cluster src_cluster;
-	src_cluster.start = 0;
-	src_cluster.end = 0;
+    src_cluster.start = 0;
+    src_cluster.end = 0;
 
-	int max_page_count =0;
+    int max_page_count = 0;
     unsigned pageStart = 0x80000000;
-	//	    unsigned pageStart = 0xc0000000;
+    //          unsigned pageStart = 0xc0000000;
     unsigned pageEnd = 0xffffe000;
     int readonly = 0;
     for (; pageStart <= pageEnd; pageStart += 0x1000) {
@@ -586,43 +619,66 @@ cluster findreadonlyarea(Mem * mem, Mem * mem2)
         //if this page is system, global,read only
         if (pAddr1 >= 0 && pAddr1 < mem->mem_size && us == 0
             && g == 256 && rw == 0) {
-            
+
             if (readonly == 0) {
-			  int page_count = (src_cluster.end - src_cluster.start )/0x1000;
-			  if(page_count > max_page_count){
-			    max_cluster.start = src_cluster.start;
-				max_cluster.end = src_cluster.end;
-				max_page_count = page_count;
-			  }
-			  printf("start %x end %x size is %d\n", src_cluster.start, src_cluster.end,page_count);
+                int page_count =
+                    (src_cluster.end - src_cluster.start) / 0x1000;
+                if (page_count > max_page_count) {
+                    max_cluster.start = src_cluster.start;
+                    max_cluster.end = src_cluster.end;
+                    max_page_count = page_count;
+                }
+                printf("start %x end %x size is %d\n", src_cluster.start,
+                       src_cluster.end, page_count);
                 src_cluster.start = pageStart;
                 readonly = 1;
             }
-			//			printf("%x readonly\n", pageStart);
+            //                      printf("%x readonly\n", pageStart);
         } else {
             // printf("%x writable readonly %d\n", pageStart,readonly);
             if (readonly == 1) {
                 src_cluster.end = pageStart - 0x1000;
                 readonly = 0;
-				//   break;
+                //   break;
             }
         }
     }
-		  int page_count = (src_cluster.end - src_cluster.start )/0x1000;
-			  if(page_count > max_page_count){
-			    max_cluster.start = src_cluster.start;
-				max_cluster.end = src_cluster.end;
-				max_page_count = page_count;
-			  }
-	
-	
-    printf("max read only area start %x, end %x, size %d\n", max_cluster.start,
-           max_cluster.end,(max_cluster.end - max_cluster.start )/0x1000);
+    int page_count = (src_cluster.end - src_cluster.start) / 0x1000;
+    if (page_count > max_page_count) {
+        max_cluster.start = src_cluster.start;
+        max_cluster.end = src_cluster.end;
+        max_page_count = page_count;
+    }
+
+
+    printf("max read only area start %x, end %x, size: %d pages\n",
+           max_cluster.start, max_cluster.end,
+           (max_cluster.end - max_cluster.start) / 0x1000);
     return max_cluster;
 }
 
 
-GArray *compute_size(GArray * pointers)
+
+int isGlobalSystem(unsigned vAddr, Mem * mem)
+{
+    int rw = 0;                 //read or write
+    int us = 0;                 //use or system
+    int g = 0;                  //global, no move out of TLB
+    int ps = 0;                 //page size 4M or 4k
+    unsigned pAddr = vtopPageProperty(mem->mem, mem->mem_size, mem->pgd,
+                                      vAddr,
+                                      &rw,
+                                      &us, &g,
+                                      &ps);
+
+    //if the page is system, global
+    if (pAddr >= 0 && pAddr < mem->mem_size && us == 0 && g == 256) {
+        return 0;
+    }
+    return -1;
+}
+
+GArray *compute_size(GArray * pointers, Mem * mem1)
 {
     //sort the pointers
     int compare_unsigned(gpointer a, gpointer b) {
@@ -633,36 +689,36 @@ GArray *compute_size(GArray * pointers)
 
     g_array_sort(pointers, (GCompareFunc) compare_unsigned);
 
-    //remove redundent
+    //remove redundent  and remove not global and system
     GArray *data_structs = g_array_new(FALSE, FALSE, sizeof(unsigned));
     int i;
     unsigned pre_pointer = g_array_index(pointers, unsigned, 0);
     g_array_append_val(data_structs, pre_pointer);
     for (i = 1; i < pointers->len; i++) {
         unsigned curr_pointer = g_array_index(pointers, unsigned, i);
-        if (curr_pointer != pre_pointer) {
+        int gsRet = isGlobalSystem(curr_pointer, mem1);
+        if (curr_pointer != pre_pointer && gsRet == 0) {
             g_array_append_val(data_structs, curr_pointer);
             pre_pointer = curr_pointer;
         }
     }
+
 
     //compute size of data structure
     unsigned base_addr = g_array_index(data_structs, unsigned, 0);
     unsigned pre_offset = 0;
 
     for (i = 1; i < data_structs->len; i++) {
+        unsigned pre_addr = g_array_index(data_structs, unsigned, i - 1);
         unsigned curr_addr = g_array_index(data_structs, unsigned, i);
         unsigned offset = curr_addr - base_addr;
         int size = offset - pre_offset;
-        printf("%x %x %d\n", g_array_index(data_structs, unsigned, i - 1),
-               pre_offset, size);
-        // printf("%x %d\n",pre_offset, size);
+        printf("%x %x %d\n", pre_addr, pre_offset, size);
+        //        print_type_sequence(pre_addr, curr_addr, mem1);
         pre_offset = offset;
     }
     printf("number of data structure %d\n", data_structs->len);
     return data_structs;
-    // g_array_free(data_structs, FALSE);
-
 }
 
 unsigned find_data_struct(GArray * data_structs, unsigned target_addr)
@@ -760,7 +816,7 @@ void print_graph(cluster src_cluster, cluster target_cluster,
                         same_count++;
                         //                        printf("%x --> %x\n", virAddr, value1);
                         int inter_offset = virAddr - curr_struct_addr;
-						unsigned abs_offset = virAddr - base_addr;
+                        unsigned abs_offset = virAddr - base_addr;
                         printf("pointer: %d %x\n", inter_offset,
                                abs_offset);
                         /*
@@ -792,28 +848,47 @@ void print_graph(cluster src_cluster, cluster target_cluster,
 }
 
 
-
-void build_graph(Mem * mem1, Mem * mem2)
+void print_type_sequence(unsigned start_addr, unsigned end_addr,
+                         Mem * mem1)
 {
-    //1
-    cluster src_cluster = findreadonlyarea(mem1, mem2);
+    int isString(unsigned value) {
+        int isString = 0;       // default is string
+        // >= 33 <= 126 ascii code 
+        char byte = value & 0x000f;
+        if ((int) byte < 33 || (int) byte > 126)
+            return -1;
+        if (((value >> 4) & 0x000f) < 33 || ((value >> 4) & 0x000f) > 126)
+            return -1;
+        if (((value >> 8) & 0x000f) < 33 || ((value >> 8) & 0x000f) > 126)
+            return -1;
+        if (((value >> 12) & 0x000f) <
+            33 || ((value >> 12) & 0x000f) > 126)
+            return -1;
 
-    cluster targetcluster;
-    targetcluster.start = src_cluster.end + 0x1000;
-    //2
-    targetcluster.end = findLoop(src_cluster, mem1, mem2);
-    //RA TO DA
-    GArray *pointers =
-        print_all_pointers(src_cluster, targetcluster, mem1, mem2);
+        return isString;
+    }
 
-    GArray *data_structs = compute_size(pointers);
-    g_array_free(pointers, FALSE);
+    unsigned virtual_address = start_addr;
+    while (virtual_address < end_addr) {
+        unsigned p_addr =
+            vtop(mem1->mem, mem1->mem_size, mem1->pgd, virtual_address);
+        unsigned value = *((unsigned *) ((unsigned) mem1->mem + p_addr));
+        if (value == 0)
+            printf("%c", '0');
+        else if (isKernelAddr(value, mem1))
+            printf("%c", 'A');
+        else if (isString(value) == 0)
+            printf("%c", 'S');
+        else
+            printf("%c", 'D');
 
-    //DA TO DA
-    puts("------------------print graph------------------");
-    print_graph(targetcluster, targetcluster, mem1, mem2, data_structs);
+
+        virtual_address += 4;
+    }
+    puts("");
     return;
 }
+
 
 /*determine whether a value is a valid non-empty kernel point */
 int isKernelAddr(unsigned vaddr, Mem * mem)
@@ -1115,6 +1190,29 @@ void compareThreeSnapshot(Mem * mem1, Mem * mem2, Mem * mem3)
 
     //3.find loop
     //findLoop(clusters[maxIndex], mem1, mem2);
+
+    return;
+}
+
+void build_graph(Mem * mem1, Mem * mem2)
+{
+    puts("-----------------find text(read only) area-----------------");
+    cluster src_cluster = findreadonlyarea(mem1, mem2);
+
+    puts("-----------------find global data area-----------------");
+    cluster targetcluster;
+    targetcluster.start = src_cluster.end + 0x1000;
+    //    targetcluster.end = findLoop(src_cluster, mem1, mem2);
+    targetcluster.end = 0xffffe000;
+
+    puts("------------------Get points from Read only area to Global data area------------------");
+    GArray *pointers =
+        get_all_pointers(src_cluster, targetcluster, mem1, mem2);
+
+    puts("------------------sort points and print them------------------");
+    GArray *data_structs = compute_size(pointers, mem1);
+    g_array_free(pointers, FALSE);
+    g_array_free(data_structs, FALSE);
 
     return;
 }
