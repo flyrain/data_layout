@@ -504,15 +504,71 @@ int isKernelAddressOrZero(unsigned vaddr, Mem * mem)
     return isKernelAddr(vaddr, mem);
 }
 
-//print all pointer in some area, offset and value of pointer
-GArray *get_all_pointers(cluster src_cluster, cluster target_cluster,
-                         Mem * mem1, Mem * mem2)
+//get all address directory from binary code 
+GArray *get_all_addresses(cluster src_cluster, cluster target_cluster,
+                          Mem * mem1, Mem * mem2)
 {
     GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
     unsigned pageStart = src_cluster.start;
     int page_no = 0, codePageNo = 0, count = 0, same_count = 0;
-    // prinf("src_cluster.end %x\n",src_cluster.end);
+ 
+    for (; pageStart <= src_cluster.end; pageStart += 0x1000) {
+        if (!isPageExist(pageStart, mem1)
+            || !isPageExist(pageStart, mem2))
+            continue;
 
+        unsigned vAddr = pageStart;
+        unsigned pAddr1 =
+            vtop(mem1->mem, mem1->mem_size, mem1->pgd, vAddr);
+        char *page = (char *) ((unsigned) mem1->mem + pAddr1);
+
+		//print page number
+        page_no++;
+        printf("page %d start vaddr 0x%x\n", page_no, vAddr);
+		
+        int j;
+        for (j = 0; j < 4 * 1024; j += 4) {
+           unsigned virAddr = vAddr + j;
+           unsigned pAddr1 =
+           vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
+           unsigned value1 =
+           *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+
+           unsigned pAddr2 =
+           vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
+           unsigned value2 =
+           *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+
+           if (isKernelAddr(value1, mem1)
+               && isKernelAddr(value2, mem2)) {
+             if (value1 >= target_cluster.start
+                 && value1 <= target_cluster.end
+                 && value2 >= target_cluster.start
+                 && value2 <= target_cluster.end) {
+               int same = (value1 == value2);
+               if (same == 1) {
+                 same_count++;
+                 g_array_append_val(pointers, value1);
+               }
+               printf("%x,%x/%x %d\n", virAddr, value1, value2, same);
+               count++;
+             }
+           }
+        }
+    }
+    printf("pointer number is %d, same no. %d\n", count, same_count);
+    return pointers;
+}
+
+
+//print all pointer in some area, offset and value of pointer
+GArray *get_reliable_addresses(cluster src_cluster, cluster target_cluster,
+                         Mem * mem1, Mem * mem2)
+{
+    GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
+    unsigned pageStart = src_cluster.start;
+    int page_no = 0, codePageNo = 0;
+ 
     for (; pageStart <= src_cluster.end; pageStart += 0x1000) {
         if (!isPageExist(pageStart, mem1)
             || !isPageExist(pageStart, mem2))
@@ -529,8 +585,7 @@ GArray *get_all_pointers(cluster src_cluster, cluster target_cluster,
 		
         //to print all reference to global data area
 		//---------------begin--------------
-
-		int totalPageNumber = mem1->mem_size / PAGE_SIZE;   //assume that every page has 4k
+ 		int totalPageNumber = mem1->mem_size / PAGE_SIZE;   //assume that every page has 4k
         int calledPages[totalPageNumber];
         int dsmPages[totalPageNumber];
         //record virtual address
@@ -541,51 +596,14 @@ GArray *get_all_pointers(cluster src_cluster, cluster target_cluster,
             dsmPages[i] = 0;
             virtualAddrs[i] = 0;
         }
+        //       if(page_no == 584)
         code_init(mem1, vAddr, PAGE_SIZE, dsmPages, virtualAddrs, 0,
-                  calledPages, &codePageNo,pointers);
-
+                  calledPages, &codePageNo,pointers,target_cluster);
 		//----------------end--------------------		
 		
 		//        disassemble_getmem_addr(mem1, page, vAddr, target_cluster,
-		//                  pointers, page_no);
-
-
-		/*
-           int j;
-
-           for (j = 0; j < 4 * 1024; j += 4) {
-           unsigned virAddr = vAddr + j;
-           unsigned pAddr1 =
-           vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
-           unsigned value1 =
-           *((unsigned *) ((unsigned) mem1->mem + pAddr1));
-
-           unsigned pAddr2 =
-           vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
-           unsigned value2 =
-           *((unsigned *) ((unsigned) mem2->mem + pAddr2));
-
-           if (isKernelAddr(value1, mem1)
-           && isKernelAddr(value2, mem2)) {
-           if (value1 >= target_cluster.start
-           && value1 <= target_cluster.end
-           && value2 >= target_cluster.start
-           && value2 <= target_cluster.end) {
-           int same = (value1 == value2);
-           if (same == 1) {
-           same_count++;
-           g_array_append_val(pointers, value1);
-           }
-           printf("%x,%x/%x %d\n", virAddr, value1, value2, same);
-           count++;
-           }
-           }
-           }
-         */
+        //                pointers, page_no);
     }
-    //    printf("pointer number is %d, same no. %d\n", count, same_count);
-    extern unsigned int mininum_pc;
-    printf("mininum pc is %x\n", mininum_pc);
     return pointers;
 }
 
@@ -968,49 +986,6 @@ int pointer_match(unsigned vAddr, Mem * mem1, Mem * mem2,
     return 1;
 }
 
-void compareTwoSnapshot(Mem * mem1, Mem * mem2)
-{
-    //targetcluster.start = 0xc0000000;
-    //targetcluster.end = 0xffffe000;
-    int pageSize = 4 * 1024;    //4k bytes
-    int totalPageNumber = mem1->mem_size / (4 * 1024);  //assume that every page has 4k
-
-    //start address
-    unsigned startVirtualAddr = 0xc0000000;
-    unsigned vAddr = startVirtualAddr;
-    int begin = 0;
-    int not_match_no = 0;
-    for (; vAddr > startVirtualAddr - 1; vAddr += 0x1000) {
-
-        int rw = 0;             //read or write
-        int us = 0;             //use or system
-        int g = 0;              //global, no move out of TLB
-        int ps = 0;             //page size 4M or 4k
-        unsigned pAddr1 =
-            vtopPageProperty(mem1->mem, mem1->mem_size, mem1->pgd,
-                             vAddr,
-                             &rw, &us,
-                             &g, &ps);
-
-        if (rw == 0)
-            begin = 1;
-
-        if (begin == 0)
-            continue;
-
-        //if physical address exists, and this page is system, global, writable, go on
-        if (pAddr1 >= 0 && pAddr1 < mem1->mem_size && us == 0
-            && g == 256 && rw == 2) {
-            if (pointer_match(vAddr, mem1, mem2, &not_match_no) == 0)
-                break;
-        }
-    }
-
-    return;
-}
-
-
-
 //whether value weak kernel address? 0x100100, 0x200200, 0, normal kernel address(such as 0xc042c340)
 //0x74737461 refer to timer.h  #define TIMER_ENTRY_STATIC       ((void *) 0x74737461)
 int isWeakKernelAddress(unsigned value, Mem * mem)
@@ -1023,175 +998,26 @@ int isWeakKernelAddress(unsigned value, Mem * mem)
         return 0;
 }
 
-void compareThreeSnapshot(Mem * mem1, Mem * mem2, Mem * mem3)
-{
-    int pageSize = 4 * 1024;    //assume page size was 4k
-    int totalPageNumber = mem1->mem_size / pageSize;
-    unsigned startVirtualAddr = 0xc0000000;     // start address
+//Get all addresses from Read only area
+void get_all_addresses_from_ro(Mem * mem1, Mem * mem2, cluster src_cluster,cluster targetcluster){
+   puts("------------------Get all addresses from Read only area ------------------");
+   GArray *pointers =
+        get_all_addresses(src_cluster, targetcluster, mem1, mem2);
+   puts("------------------sort and print------------------");
+   GArray *data_structs = compute_size(pointers, mem1);
+   g_array_free(pointers, FALSE);
+   g_array_free(data_structs, FALSE);
+}
 
-    //1.collect same sharpe pages and their points number
-    unsigned sameSharpPages[totalPageNumber];
-    unsigned pointsNumbers[totalPageNumber];
-    int i;
-    for (i = 0; i < totalPageNumber; i++) {
-        sameSharpPages[i] = 0;
-        pointsNumbers[i] = 0;
-    }
-    int indexSamePages = 0;
-
-    unsigned vAddr = startVirtualAddr;
-    for (; vAddr > startVirtualAddr - 1; vAddr += 0x1000) {
-
-        if (!isPageExist(vAddr, mem1) || !isPageExist(vAddr, mem2)
-            || !isPageExist(vAddr, mem2))
-            continue;
-
-//              printf("page vir address:%x\n", vAddr);
-        int j;
-        int pointsNotMatch = 0;
-        int pointsMatch = 0;
-        for (j = 0; j < pageSize; j += 4) {
-            unsigned virAddr = vAddr + j;
-            //get values
-            unsigned value1 = getMemValueByVirAddr(virAddr, mem1);
-            unsigned value2 = getMemValueByVirAddr(virAddr, mem2);
-            unsigned value3 = getMemValueByVirAddr(virAddr, mem3);
-//                      if (vAddr == 0xc5c2a000)
-//                              printf("value1,%x %x %x\n", value1, value2, value3);
-            if (value1 == 0 && value2 == 0 && value3 == 0)
-                continue;
-
-            if (isWeakKernelAddress(value1, mem1)
-                && isWeakKernelAddress(value2, mem2)
-                && isWeakKernelAddress(value3, mem3)) {
-//                              printf("weak value: %x %x %x\n", value1, value2, value3);
-                if (isKernelAddress(value1, mem1)
-                    && isKernelAddress(value2, mem2)
-                    && isKernelAddress(value3, mem3)) {
-                    //if one of points point to another page, compare next level
-                    if ((value1 & (~0xfff)) == vAddr
-                        && (value2 & (~0xfff)) == vAddr
-                        && (value3 & (~0xfff)) == vAddr) {
-                        if (!(value1 == value2 && value2 == value3)) {
-                            pointsNotMatch++;
-                            printf("offset diff: %x %x %x\n", value1,
-                                   value2, value3);
-                            break;
-                        }
-                    } else {
-                        if ((value1 & 0xfff) == (value2 & 0xfff)
-                            && (value2 & 0xfff) == (value3 & 0xfff)) {
-                            pointsMatch++;
-                            continue;
-                        }
-                    }
-                } else {
-//                                      pointsMatch++;
-//                                      continue;
-                }
-            }
-
-            if (value1 != value2 || value1 != value3) {
-                // one Zero
-
-                // two Zero
-
-                // none Zero
-                if (value1 != 0 && value2 != 0 && value3 != 0) {
-//                                      printf("value: %x %x %x\n", value1, value2, value3);
-                    int ret1 = isWeakKernelAddress(value1, mem1);
-                    int ret2 = isWeakKernelAddress(value2, mem2);
-                    int ret3 = isWeakKernelAddress(value3, mem3);
-//                                      printf("%x ret: %d %d %d\n", virAddr, ret1, ret2, ret3);
-                    if (ret1 + ret2 + ret3 == 1) {
-                        printf("value: %x %x %x\n", value1, value2,
-                               value3);
-                        printf("%x ret: %d %d %d\n", virAddr, ret1,
-                               ret2, ret3);
-                    }
-                    if (ret1 + ret2 + ret3 == 2) {
-                        printf("%x: %x %x %x\n", virAddr, value1,
-                               value2, value3);
-                        printf("%x ret: %d %d %d\n", virAddr, ret1,
-                               ret2, ret3);
-                        pointsNotMatch++;
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (pointsNotMatch > 0) {
-            //break, may discontinuous
-            printf("%x: break! no match count:%d\n", vAddr,
-                   pointsNotMatch);
-            sameSharpPages[indexSamePages] = vAddr;
-            pointsNumbers[indexSamePages] = 0;
-            indexSamePages++;
-        } else if (pointsMatch > 0) {
-            printf("%x: pointsMatch %d\n", vAddr, pointsMatch);
-            sameSharpPages[indexSamePages] = vAddr;
-            pointsNumbers[indexSamePages] = pointsMatch;
-            indexSamePages++;
-        }
-
-    }
-
-    //2. find the largest point number cluster
-    cluster clusters[10000];
-    int clusterIndex = -1;
-    int isNewCluster = 0;
-    //divided by 4M, and get the lowest group
-    for (i = 0; i < indexSamePages; i++) {
-        if (isCodePage(mem1, sameSharpPages[i]) == 1) {
-            isNewCluster = 1;
-            continue;
-        }
-        //if break;
-        if (pointsNumbers[i] == 0) {
-            isNewCluster = 1;
-            continue;
-        }
-//              if ((i > 0 && sameSharpPages[i] - sameSharpPages[i - 1] > 0x10000)
-//                              || sameSharpPages[i] >= clusters[clusterIndex].start + 0x400000
-//                              || clusterIndex == -1 || isNewCluster == 1) {
-        if (clusterIndex == -1 || isNewCluster == 1) {
-            //new cluster
-            isNewCluster = 0;
-            clusterIndex++;
-            clusters[clusterIndex].start = sameSharpPages[i];
-            clusters[clusterIndex].end = clusters[clusterIndex].start;
-            clusters[clusterIndex].count = 1;
-            clusters[clusterIndex].pointsNumber = pointsNumbers[i];
-        } else {
-            clusters[clusterIndex].end = sameSharpPages[i];
-            clusters[clusterIndex].count++;
-            clusters[clusterIndex].pointsNumber += pointsNumbers[i];
-        }
-    }
-
-    //print the cluster, and find the max point number cluster
-    unsigned maxPointNumber = 0;
-    int maxPageNum = 0;
-    int maxIndex = -1;
-    for (i = 0; i < clusterIndex + 1; i++) {
-        if (clusters[i].pointsNumber > maxPointNumber) {
-            maxPointNumber = clusters[i].pointsNumber;
-            maxIndex = i;
-        }
-        printf("cluster %d: %x -- %x  page count: %d point number: %d\n",
-               i, clusters[i].start, clusters[i].end, clusters[i].count,
-               clusters[i].pointsNumber);
-    }
-
-    printf("MAX cluster: %x -- %x  page count: %d point number: %d\n",
-           clusters[maxIndex].start, clusters[maxIndex].end,
-           clusters[maxIndex].count, clusters[maxIndex].pointsNumber);
-
-    //3.find loop
-    //findLoop(clusters[maxIndex], mem1, mem2);
-
-    return;
+//Get all addresses from Read only area
+void get_reliable_addresses_from_ro(Mem * mem1, Mem * mem2, cluster src_cluster,cluster targetcluster){
+  puts("------------------Get reliable addresses from Read only area -----------------");
+  GArray *reliable_addrs =
+    get_reliable_addresses(src_cluster, targetcluster, mem1, mem2);
+  puts("------------------sort points and print them------------------");
+  GArray *reliable_data_structs = compute_size(reliable_addrs, mem1);
+  g_array_free(reliable_addrs, FALSE);
+  g_array_free(reliable_data_structs, FALSE);
 }
 
 void build_graph(Mem * mem1, Mem * mem2)
@@ -1204,15 +1030,10 @@ void build_graph(Mem * mem1, Mem * mem2)
     targetcluster.start = src_cluster.end + 0x1000;
     //    targetcluster.end = findLoop(src_cluster, mem1, mem2);
     targetcluster.end = 0xffffe000;
-
-    puts("------------------Get points from Read only area to Global data area------------------");
-    GArray *pointers =
-        get_all_pointers(src_cluster, targetcluster, mem1, mem2);
-
-    puts("------------------sort points and print them------------------");
-    GArray *data_structs = compute_size(pointers, mem1);
-    g_array_free(pointers, FALSE);
-    g_array_free(data_structs, FALSE);
-
+ 
+    get_all_addresses_from_ro(mem1,mem2,src_cluster,targetcluster);
+    
+    get_reliable_addresses_from_ro(mem1,mem2,src_cluster,targetcluster);
+    
     return;
 }

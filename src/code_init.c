@@ -150,6 +150,27 @@ int canDisasn(Mem * mem, unsigned char *data, unsigned offset,
 }
 
 
+void get_addr_add_to_array(GArray *pointers, cluster target_cluster, xed_iclass_enum_t opcode){
+			unsigned int addr_width = 0;
+            unsigned int addr_oprand = 0;
+            //index is 0, print the address
+            addr_oprand = (unsigned int)
+                xed_decoded_inst_get_memory_displacement(&xedd_g, 0);
+            addr_width =
+                xed_decoded_inst_get_memory_displacement_width(&xedd_g, 0);
+//            printf ("addr_width %d, value %x\n", addr_width, addr_oprand);
+//            printf("start %x, end %x\n",target_cluster.start,target_cluster.end);
+            if (addr_width == 4 && addr_oprand >= target_cluster.start
+                && addr_oprand <= target_cluster.end) {
+              printf("addr_oprand %x", addr_oprand);
+              if(opcode == XED_ICLASS_CALL_NEAR)
+                printf(" func pointer");
+              puts("");
+              g_array_append_val(pointers, addr_oprand);
+            }
+}
+
+
 unsigned int mininum_pc =0xffffffff;
 //by Yufei Gu, 8/29/12
 //disassemble one code page and get memory address in oprand of all instructions
@@ -171,19 +192,8 @@ int disassemble_getmem_addr(Mem * mem, unsigned char *data,
         if (xed_error == XED_ERROR_NONE) {
             const xed_inst_t *xi = xed_decoded_inst_inst(&xedd_g);
 
-            unsigned int addr_width = 0;
-            unsigned int addr_oprand = 0;
-            //index is 0, print the address
-            addr_oprand = (unsigned int)
-                xed_decoded_inst_get_memory_displacement(&xedd_g, 0);
-            addr_width =
-                xed_decoded_inst_get_memory_displacement_width(&xedd_g, 0);
-            if (addr_width == 4 && addr_oprand >= target_cluster.start
-                && addr_oprand <= target_cluster.end) {
-                printf("%x\n", addr_oprand);
-                g_array_append_val(pointers, addr_oprand);
-            }
-            //                      printf ("addr_oprand 0 %x %x\t",addr_width,addr_oprand);
+            get_addr_add_to_array(pointers,target_cluster,0);
+      
             xed_decoded_inst_dump_intel_format(&xedd_g, str, sizeof(str),
                                                0);
             size = xed_decoded_inst_get_length(&xedd_g);
@@ -192,7 +202,7 @@ int disassemble_getmem_addr(Mem * mem, unsigned char *data,
 
 
 			//			printf("str: %s \n", str);
-            if (page_no >= 0) {
+            if (page_no >= 10000) {
                 unsigned int i;
 				printf("0x%08x: ", offset + start_addr);
                 for (i = 0; i < size; i++) {
@@ -232,6 +242,8 @@ int disassemble_getmem_addr(Mem * mem, unsigned char *data,
     return 0;
 }
 
+
+
 //Added by Yufei Gu, 8/31/12
 //Disassemble one function and get memory address in oprand of all instructions
 int disasn_func(Mem * mem, unsigned char *data, unsigned *poffset,
@@ -262,8 +274,9 @@ int disasn_func(Mem * mem, unsigned char *data, unsigned *poffset,
                 || opcode == XED_ICLASS_RET_FAR
                 || opcode == XED_ICLASS_INT3)
                 success = 1;
-            if (opcode == XED_ICLASS_JMP)
-                success = 1;
+            //modified by yufei
+            // if (opcode == XED_ICLASS_JMP)
+            //  success = 1;
             if (size == 3 && data[offset] == 0x8d
                 && data[offset + 1] == 0x49 && data[offset + 2] == 0x00)
                 success = 1;
@@ -295,44 +308,32 @@ int disasn_func(Mem * mem, unsigned char *data, unsigned *poffset,
         if (xed_error == XED_ERROR_NONE) {
             const xed_inst_t *xi = xed_decoded_inst_inst(&xedd_g);
 
-			//-------------add by yufei,begin--------------------
-			unsigned int addr_width = 0;
-            unsigned int addr_oprand = 0;
-            //index is 0, print the address
-            addr_oprand = (unsigned int)
-                xed_decoded_inst_get_memory_displacement(&xedd_g, 0);
-            addr_width =
-                xed_decoded_inst_get_memory_displacement_width(&xedd_g, 0);
-			//	printf ("addr_width %d, value %x\n", addr_width, addr_oprand);
-            if (addr_width == 4 && addr_oprand >= target_cluster.start
-                && addr_oprand <= target_cluster.end) {
-			      printf("addr_oprand %x\n", addr_oprand);
-			    g_array_append_val(pointers, addr_oprand);
-            }
-			//-------------add by yufei,end--------------------
 			
             xed_decoded_inst_dump_intel_format(&xedd_g, str,
                                                sizeof(str), 0);
             size = xed_decoded_inst_get_length(&xedd_g);
             xed_iclass_enum_t opcode =
-                xed_decoded_inst_get_iclass(&xedd_g);
+              xed_decoded_inst_get_iclass(&xedd_g);
 
-					printf("%s\n",str);
+   			//-------------add by yufei--------------------
+            //              printf("%s\n",str);
+            if(opcode != XED_ICLASS_LEA)
+              get_addr_add_to_array(pointers,target_cluster,opcode);
 
-			
-
-			
             if (is_replace)
                 is_dism[offset / PAGE_SIZE] = 1;
 
-			
+            is_print =1 ;
+   
             if (is_print) {
                 unsigned int i;
-                fprintf(out_code, "0x%08x: ", offset + vaddr);
-                for (i = 0; i < size; i++)
-                    fprintf(out_code, "%02x ", data[offset + i]);
-                for (; i < 8; i++)
-                    fprintf(out_code, "   ");
+                //     printf( "0x%08x: ", offset + vaddr);
+                for (i = 0; i < size; i++){
+                  //printf( "%02x ", data[offset + i]);
+                }
+                for (; i < 8; i++){
+                  //printf( "   ");
+                }
                 const xed_operand_t *op0 = xed_inst_operand(xi, 0);
                 xed_operand_enum_t op_name0 = xed_operand_name(op0);
                 uint32_t branch;
@@ -344,9 +345,11 @@ int disasn_func(Mem * mem, unsigned char *data, unsigned *poffset,
                     opname[4] = '\0';
                     uint32_t pc = vaddr + offset + size + branch;
                     sprintf(str, "%s 0x%08x", opname, pc);
-
+           
+                    if(pc >= target_cluster.start  && pc <= target_cluster.end)
+                      printf("pc: %x\n", pc);
                 }
-                fprintf(out_code, "%s\n", str);
+                //printf( "%s\n", str);
             }
 
             if (!is_replace && opcode == XED_ICLASS_CALL_NEAR
@@ -389,10 +392,9 @@ int disasn_func(Mem * mem, unsigned char *data, unsigned *poffset,
             if (opcode == XED_ICLASS_INT3
                 || opcode == XED_ICLASS_RET_NEAR
                 || opcode == XED_ICLASS_RET_FAR
-                || (opcode == XED_ICLASS_JMP)) {
+                //|| (opcode == XED_ICLASS_JMP)
+                ) {
                 *poffset = offset + size;
-                if (is_print)
-                    fprintf(out_code, "\n\n");
 
                 return 0;
             }
