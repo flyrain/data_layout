@@ -16,7 +16,7 @@
 #include <stdint.h>
 #include <glib.h>
 
-
+GArray *compute_size(GArray * pointers, Mem * mem);
 
 unsigned getMemValueByVirAddr(unsigned virAddr, Mem * mem)
 {
@@ -509,7 +509,8 @@ GArray *get_all_addresses(cluster src_cluster, cluster target_cluster,
                           Mem * mem1, Mem * mem2)
 {
     GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
-    unsigned pageStart = src_cluster.start;
+    GArray *pointers2 = g_array_new(FALSE, FALSE, sizeof(unsigned));
+    unsigned pageStart = src_cluster.start & 0xfffff000;
     int page_no = 0, codePageNo = 0, count = 0, same_count = 0;
  
     for (; pageStart <= src_cluster.end; pageStart += 0x1000) {
@@ -524,7 +525,7 @@ GArray *get_all_addresses(cluster src_cluster, cluster target_cluster,
 
 		//print page number
         page_no++;
-        printf("page %d start vaddr 0x%x\n", page_no, vAddr);
+        //        printf("page %d start vaddr 0x%x\n", page_no, vAddr);
 		
         int j;
         for (j = 0; j < 4 * 1024; j += 4) {
@@ -548,18 +549,164 @@ GArray *get_all_addresses(cluster src_cluster, cluster target_cluster,
                int same = (value1 == value2);
                if (same == 1) {
                  same_count++;
-                 g_array_append_val(pointers, value1);
                }
-               printf("%x,%x/%x %d\n", virAddr, value1, value2, same);
+
+
+               g_array_append_val(pointers, value1);               
+               g_array_append_val(pointers2, value2);
+               
+               //printf("%x,%x/%x %d\n", virAddr, value1, value2, same);
                count++;
              }
            }
         }
     }
+
+    
     printf("pointer number is %d, same no. %d\n", count, same_count);
+
+    //    compute_size(pointers2, mem2);
     return pointers;
 }
 
+int print_point_sharp(int level,unsigned vaddr1,Mem * mem1, cluster target){
+  int i ;
+  if(level > 4) return 1;
+  int max_match =10,  match_count =0;
+  int offsets[max_match];
+  unsigned pointers[max_match];
+  int offset1 =0, offset2=0;
+  int pre_offset = 0;
+  for(i=0; i < PAGE_SIZE; i += 4 ){
+    unsigned vAddr1 = vaddr1 +i;
+      unsigned pAddr1 =
+        vtop(mem1->mem, mem1->mem_size, mem1->pgd, vAddr1);
+      unsigned value1 =
+        *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+
+      int is_value1_pointer =0;
+      if(isKernelAddr(value1, mem1)
+         && value1 >= target.start && value1 <= target.end)
+        is_value1_pointer = 1;
+      
+      //if both are heap pointers, to next level
+      if( is_value1_pointer ){
+        /*
+        if(i < 60 && i > 36) continue;
+
+        if(match_count == 0 && i !=4)
+          return 0;
+
+        if(match_count == 1 && i !=36)
+          return 0;
+
+        if(match_count == 2 && i != 60)
+          return 0;
+        */
+
+        //filter some sharp
+        if( match_count ==0 && i > 500)
+          return 0;
+        offsets[match_count] = i - pre_offset;
+        pre_offset =i;
+        pointers[match_count] = value1;
+        match_count ++;
+      }
+
+      if(match_count >= max_match)
+        break;
+  }
+  if(match_count >= max_match){
+    for(i =0;i<max_match; i ++){
+      //      printf("%d %x ", offsets[i], pointers[i]);
+      printf("%d ", offsets[i]);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+
+int contains(GArray * pointers, unsigned value){
+     int k;
+     int contain = 0;
+     for(k = 0; k < pointers->len;k++){
+       if (g_array_index(pointers, unsigned, k)==value ){
+         contain =1;
+         break;
+       }
+     }
+     return contain;
+}
+GArray *search_obj_baseon_pointer_sharp(cluster src_cluster, cluster target_cluster,
+                          Mem * mem1, Mem * mem2)
+{
+    GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
+    GArray *pointers2 = g_array_new(FALSE, FALSE, sizeof(unsigned));
+    unsigned pageStart = src_cluster.start & 0xfffff000;
+    int page_no = 0, codePageNo = 0, count = 0, same_count = 0;
+ 
+    for (; pageStart <= src_cluster.end; pageStart += 0x1000) {
+        if (!isPageExist(pageStart, mem1)
+            || !isPageExist(pageStart, mem2))
+            continue;
+
+        unsigned vAddr = pageStart;
+        unsigned pAddr1 =
+            vtop(mem1->mem, mem1->mem_size, mem1->pgd, vAddr);
+        char *page = (char *) ((unsigned) mem1->mem + pAddr1);
+
+		//print page number
+        page_no++;
+        //        printf("page %d start vaddr 0x%x\n", page_no, vAddr);
+		
+        int j;
+        for (j = 0; j < 4 * 1024; j += 4) {
+           unsigned virAddr = vAddr + j;
+           unsigned pAddr1 =
+           vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
+           unsigned value1 =
+           *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+
+           unsigned pAddr2 =
+           vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
+           unsigned value2 =
+           *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+
+           //is kernel address
+             //is in target area
+      
+           int isfound = contains(pointers,value1);
+             if ( !isfound && isKernelAddr(value1, mem1)
+                 && value1 >= target_cluster.start
+                 && value1 <= target_cluster.end){
+               
+               int ret = print_point_sharp(1,value1,mem1, target_cluster);
+               if(ret == 1){
+                 //                 printf("%x %x\n", virAddr,
+                 //                 value1);
+                 printf("%x value1\n", value1);
+                 g_array_append_val(pointers, value1);
+               }
+             }
+
+             isfound = contains(pointers2,value2);
+             if( !isfound && value1 != value2 && isKernelAddr(value2, mem2)
+                 && value2 >= target_cluster.start
+                 && value2 <= target_cluster.end) {
+               int ret = print_point_sharp(1,value2,mem2, target_cluster);
+               if(ret == 1){
+                 printf("%x value2\n", value2);
+                 g_array_append_val(pointers2, value2);                 
+               }
+             }
+        }
+    }  
+    compute_size(pointers, mem1);
+    compute_size(pointers2, mem2);
+    
+    return pointers;
+}
 
 //print all pointer in some area, offset and value of pointer
 GArray *get_reliable_addresses(cluster src_cluster, cluster target_cluster,
@@ -696,344 +843,705 @@ int isGlobalSystem(unsigned vAddr, Mem * mem)
     return -1;
 }
 
-GArray *compute_size(GArray * pointers, Mem * mem1)
-{
-    //sort the pointers
-    int compare_unsigned(gpointer a, gpointer b) {
-        unsigned *x = (unsigned *) a;
-        unsigned *y = (unsigned *) b;
-        return *x - *y;
-    }
-
-    g_array_sort(pointers, (GCompareFunc) compare_unsigned);
-
-    //remove redundent  and remove not global and system
-    GArray *data_structs = g_array_new(FALSE, FALSE, sizeof(unsigned));
-    int i;
-    unsigned pre_pointer = g_array_index(pointers, unsigned, 0);
-    g_array_append_val(data_structs, pre_pointer);
-    for (i = 1; i < pointers->len; i++) {
-        unsigned curr_pointer = g_array_index(pointers, unsigned, i);
-        int gsRet = isGlobalSystem(curr_pointer, mem1);
-        if (curr_pointer != pre_pointer && gsRet == 0) {
-            g_array_append_val(data_structs, curr_pointer);
-            pre_pointer = curr_pointer;
-        }
-    }
-
-
-    //compute size of data structure
-    unsigned base_addr = g_array_index(data_structs, unsigned, 0);
+void compute_print_size(GArray *data_structs){
+   unsigned base_addr = g_array_index(data_structs, unsigned, 0);
     unsigned pre_offset = 0;
-
+    int i;
     for (i = 1; i < data_structs->len; i++) {
         unsigned pre_addr = g_array_index(data_structs, unsigned, i - 1);
         unsigned curr_addr = g_array_index(data_structs, unsigned, i);
         unsigned offset = curr_addr - base_addr;
         int size = offset - pre_offset;
-        printf("%x %x %d\n", pre_addr, pre_offset, size);
+        //     printf("%x %x %d\n", pre_addr, pre_offset, size);
         //        print_type_sequence(pre_addr, curr_addr, mem1);
-        pre_offset = offset;
-    }
-    printf("number of data structure %d\n", data_structs->len);
-    return data_structs;
+         pre_offset = offset;
+     }
+     printf("number of data structure %d\n", data_structs->len);
+  }
+
+ GArray *compute_size(GArray * pointers, Mem * mem)
+ {
+     //sort the pointers
+     int compare_unsigned(gpointer a, gpointer b) {
+         unsigned *x = (unsigned *) a;
+         unsigned *y = (unsigned *) b;
+         return *x - *y;
+     }
+
+     g_array_sort(pointers, (GCompareFunc) compare_unsigned);
+
+     //remove redundent  and remove not global and system
+     GArray *data_structs = g_array_new(FALSE, FALSE, sizeof(unsigned));
+     int i;
+     unsigned pre_pointer = g_array_index(pointers, unsigned, 0);
+     g_array_append_val(data_structs, pre_pointer);
+     for (i = 1; i < pointers->len; i++) {
+         unsigned curr_pointer = g_array_index(pointers, unsigned, i);
+         int gsRet = isGlobalSystem(curr_pointer, mem);
+         if (curr_pointer != pre_pointer && gsRet == 0) {
+             g_array_append_val(data_structs, curr_pointer);
+             pre_pointer = curr_pointer;
+         }
+     }
+
+     //compute size of data structure
+     compute_print_size(data_structs);
+
+     return data_structs;
+ }
+
+ unsigned find_data_struct(GArray * data_structs, unsigned target_addr)
+ {
+     int i = 0;
+     for (i = 0; i < data_structs->len - 1; i++) {
+         unsigned data_structs_addr =
+             g_array_index(data_structs, unsigned, i);
+
+         unsigned next_addr = g_array_index(data_structs, unsigned, i + 1);
+
+         if (data_structs_addr < target_addr && next_addr > target_addr) {
+             //      printf("(%d) = *x - %d\n",i,  target_addr- data_structs_addr);
+             printf("() = *x - %d\n", target_addr - data_structs_addr);
+             break;
+         }
+         if (data_structs_addr == target_addr) {
+             // printf("(%d) = *x\n",i);
+             printf("() = *x\n");
+             break;
+
+         }
+     }
+ }
+
+
+
+ void print_graph(cluster src_cluster, cluster target_cluster,
+                  Mem * mem1, Mem * mem2, GArray * data_structs)
+ {
+     // GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
+     unsigned pageStart = src_cluster.start;
+     int count = 0, same_count = 0;
+     // prinf("src_cluster.end %x\n",src_cluster.end);
+
+     int struct_index = 0;
+     int len = data_structs->len;
+
+     unsigned base_addr = g_array_index(data_structs, unsigned, 0);
+     unsigned pre_offset = 0;
+
+     unsigned curr_struct_addr = 0;
+     for (; pageStart <= src_cluster.end; pageStart += 0x1000) {
+         if (!isPageExist(pageStart, mem1)
+             || !isPageExist(pageStart, mem2))
+             continue;
+
+         unsigned vAddr = pageStart;
+         int j;
+
+         for (j = 0; j < 4 * 1024; j += 4) {
+             unsigned virAddr = vAddr + j;
+             unsigned curr_struct =
+                 g_array_index(data_structs, unsigned, struct_index);
+
+             unsigned offset = curr_struct - base_addr;
+             unsigned next_struct = 0;
+             if (struct_index + 1 < len)
+                 next_struct =
+                     g_array_index(data_structs, unsigned,
+                                   struct_index + 1);
+             else
+                 next_struct = target_cluster.end;
+             int size = next_struct - curr_struct;
+
+             if (virAddr >= curr_struct) {
+                 // printf("%d %x %x %d\n", struct_index, curr_struct, offset,
+                 //           size);
+                 curr_struct_addr = curr_struct;
+                 printf("%x %d\n", offset, size);
+                 struct_index++;
+
+                 if (struct_index >= len)
+                     break;
+             }
+             //print pointers
+             unsigned pAddr1 =
+                 vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
+             unsigned value1 =
+                 *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+
+             unsigned pAddr2 =
+                 vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
+             unsigned value2 =
+                 *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+
+             if (isKernelAddr(value1, mem1)
+                 && isKernelAddr(value2, mem2)) {
+                 if (value1 >= target_cluster.start
+                     && value1 <= target_cluster.end
+                     && value2 >= target_cluster.start
+                     && value2 <= target_cluster.end) {
+                     int same = (value1 == value2);
+                     if (same == 1) {
+                         same_count++;
+                         //                        printf("%x --> %x\n", virAddr, value1);
+                         int inter_offset = virAddr - curr_struct_addr;
+                         unsigned abs_offset = virAddr - base_addr;
+                         printf("pointer: %d %x\n", inter_offset,
+                                abs_offset);
+                         /*
+                            int offset = value1 - virAddr;
+                            if (offset > 4096 || offset < -4096)
+                            find_data_struct(data_structs, value1);
+                            else {
+
+                            if (offset > 0)
+                            printf("x= *x - %d\n", offset);
+                            if (offset == 0)
+                            printf("x= *x\n");
+                            if (offset < 0)
+                            printf("x= *x + %d\n", -offset);
+
+                            }
+                          */
+                     }
+
+                     count++;
+                 }
+             }
+         }
+
+     }
+     printf("pointer number is %d, same no. %d\n", count, same_count);
+
+     return;
+ }
+
+
+ void print_type_sequence(unsigned start_addr, unsigned end_addr,
+                          Mem * mem1)
+ {
+     int isString(unsigned value) {
+         int isString = 0;       // default is string
+         // >= 33 <= 126 ascii code 
+         char byte = value & 0x000f;
+         if ((int) byte < 33 || (int) byte > 126)
+             return -1;
+         if (((value >> 4) & 0x000f) < 33 || ((value >> 4) & 0x000f) > 126)
+             return -1;
+         if (((value >> 8) & 0x000f) < 33 || ((value >> 8) & 0x000f) > 126)
+             return -1;
+         if (((value >> 12) & 0x000f) <
+             33 || ((value >> 12) & 0x000f) > 126)
+             return -1;
+
+         return isString;
+     }
+
+     unsigned virtual_address = start_addr;
+     while (virtual_address < end_addr) {
+         unsigned p_addr =
+             vtop(mem1->mem, mem1->mem_size, mem1->pgd, virtual_address);
+         unsigned value = *((unsigned *) ((unsigned) mem1->mem + p_addr));
+         if (value == 0)
+             printf("%c", '0');
+         else if (isKernelAddr(value, mem1))
+             printf("%c", 'A');
+         else if (isString(value) == 0)
+             printf("%c", 'S');
+         else
+             printf("%c", 'D');
+
+
+         virtual_address += 4;
+     }
+     puts("");
+     return;
+ }
+
+
+ /*determine whether a value is a valid non-empty kernel point */
+ int isKernelAddr(unsigned vaddr, Mem * mem)
+ {
+     //special pointer
+     if (vaddr == 0x00100100 || vaddr == 0x00200200)
+         return 1;
+
+     //non pointer
+     if (vaddr == 0xcccccccc)
+         return 0;
+
+     //normal pointer
+     unsigned kernleStartAddr;
+     kernleStartAddr = 0x80000000;
+     if (vaddr > kernleStartAddr) {
+         unsigned pAddr = vtop(mem->mem, mem->mem_size, mem->pgd, vaddr);
+         if (pAddr > 0 && pAddr < mem->mem_size)
+             return 1;
+     }
+     return 0;
+ }
+
+ int isNonPointer(unsigned vir_add, Mem * mem)
+ {
+     if (vir_add == 0xcccccccc)
+         return 1;
+     return !isKernelAddressOrZero(vir_add, mem);
+ }
+
+ int pointer_match(unsigned vAddr, Mem * mem1, Mem * mem2,
+                   int *not_match_no)
+ {
+     int j;
+     int pointsMatch = 0;
+     for (j = 0; j < PAGE_SIZE; j += 4) {
+         unsigned virAddr = vAddr + j;
+         unsigned pAddr1 =
+             vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
+         unsigned pAddr2 =
+             vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
+
+         //get value by assume its a point
+         unsigned value1 = *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+         unsigned value2 = *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+
+         if ((isKernelAddr(value1, mem1)
+              && (isKernelAddressOrZero(value2, mem2)))
+             || (isKernelAddressOrZero(value1, mem1)
+                 && isKernelAddr(value2, mem2))) {
+             pointsMatch++;
+             if (value1 != 0 && value2 != 0) {
+                 (*not_match_no) = 0;    //reset pointNotMatch, since strong match
+                 printf("%x\n", virAddr);
+                 //printf("%x %x %x %d\n", virAddr, value1, value2,
+                 //     value1 == value2);
+             }
+             continue;
+         }
+         //value1 not equals to value2
+         if (value1 != value2) {
+             if ((isKernelAddr(value1, mem1)
+                  && isNonPointer(value2, mem2))
+                 || (isNonPointer(value1, mem1)
+                     && isKernelAddr(value2, mem2))) {
+                 (*not_match_no)++;
+                 //                              printf("%x %x not pointer\n", value1,value2);
+                 if ((*not_match_no) > 800) {
+                     printf("end is %x\n", virAddr);
+                     return 0;
+                 } else
+                     continue;
+             }
+         }
+     }
+
+     return 1;
+ }
+
+ //whether value weak kernel address? 0x100100, 0x200200, 0, normal kernel address(such as 0xc042c340)
+ //0x74737461 refer to timer.h  #define TIMER_ENTRY_STATIC       ((void *) 0x74737461)
+ int isWeakKernelAddress(unsigned value, Mem * mem)
+ {
+     if (value == 0x00100100 || value == 0x00200200
+         || value == 0x74737461 || value == 0
+         || isKernelAddress(value, mem))
+         return 1;
+     else
+         return 0;
+ }
+
+ //Get all addresses from source area to target area
+ GArray * get_all_addresses_src2target(Mem * mem1, Mem * mem2, cluster src_cluster,cluster targetcluster){
+    GArray *pointers =
+         get_all_addresses(src_cluster, targetcluster, mem1, mem2);
+    puts("------------------sort and print------------------");
+    GArray *data_structs = compute_size(pointers, mem1);
+   g_array_free(pointers, FALSE);
+   return data_structs;
 }
 
-unsigned find_data_struct(GArray * data_structs, unsigned target_addr)
-{
-    int i = 0;
-    for (i = 0; i < data_structs->len - 1; i++) {
-        unsigned data_structs_addr =
-            g_array_index(data_structs, unsigned, i);
-
-        unsigned next_addr = g_array_index(data_structs, unsigned, i + 1);
-
-        if (data_structs_addr < target_addr && next_addr > target_addr) {
-            //      printf("(%d) = *x - %d\n",i,  target_addr- data_structs_addr);
-            printf("() = *x - %d\n", target_addr - data_structs_addr);
-            break;
-        }
-        if (data_structs_addr == target_addr) {
-            // printf("(%d) = *x\n",i);
-            printf("() = *x\n");
-            break;
-
-        }
-    }
-}
-
-
-
-void print_graph(cluster src_cluster, cluster target_cluster,
-                 Mem * mem1, Mem * mem2, GArray * data_structs)
-{
-    // GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
-    unsigned pageStart = src_cluster.start;
-    int count = 0, same_count = 0;
-    // prinf("src_cluster.end %x\n",src_cluster.end);
-
-    int struct_index = 0;
-    int len = data_structs->len;
-
-    unsigned base_addr = g_array_index(data_structs, unsigned, 0);
-    unsigned pre_offset = 0;
-
-    unsigned curr_struct_addr = 0;
+//print the pages which have pointers
+GArray * has_pointers(Mem * mem1, Mem * mem2, cluster src_cluster,cluster target_cluster){
+    GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
+    unsigned pageStart = src_cluster.start & 0xfffff000;
+    int page_no = 0, codePageNo = 0, count = 0, same_count = 0;
+    int pre_pointer_no =0;
     for (; pageStart <= src_cluster.end; pageStart += 0x1000) {
         if (!isPageExist(pageStart, mem1)
             || !isPageExist(pageStart, mem2))
             continue;
 
         unsigned vAddr = pageStart;
-        int j;
-
-        for (j = 0; j < 4 * 1024; j += 4) {
-            unsigned virAddr = vAddr + j;
-            unsigned curr_struct =
-                g_array_index(data_structs, unsigned, struct_index);
-
-            unsigned offset = curr_struct - base_addr;
-            unsigned next_struct = 0;
-            if (struct_index + 1 < len)
-                next_struct =
-                    g_array_index(data_structs, unsigned,
-                                  struct_index + 1);
-            else
-                next_struct = target_cluster.end;
-            int size = next_struct - curr_struct;
-
-            if (virAddr >= curr_struct) {
-                // printf("%d %x %x %d\n", struct_index, curr_struct, offset,
-                //           size);
-                curr_struct_addr = curr_struct;
-                printf("%x %d\n", offset, size);
-                struct_index++;
-
-                if (struct_index >= len)
-                    break;
-            }
-            //print pointers
-            unsigned pAddr1 =
-                vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
-            unsigned value1 =
-                *((unsigned *) ((unsigned) mem1->mem + pAddr1));
-
-            unsigned pAddr2 =
-                vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
-            unsigned value2 =
-                *((unsigned *) ((unsigned) mem2->mem + pAddr2));
-
-            if (isKernelAddr(value1, mem1)
-                && isKernelAddr(value2, mem2)) {
-                if (value1 >= target_cluster.start
-                    && value1 <= target_cluster.end
-                    && value2 >= target_cluster.start
-                    && value2 <= target_cluster.end) {
-                    int same = (value1 == value2);
-                    if (same == 1) {
-                        same_count++;
-                        //                        printf("%x --> %x\n", virAddr, value1);
-                        int inter_offset = virAddr - curr_struct_addr;
-                        unsigned abs_offset = virAddr - base_addr;
-                        printf("pointer: %d %x\n", inter_offset,
-                               abs_offset);
-                        /*
-                           int offset = value1 - virAddr;
-                           if (offset > 4096 || offset < -4096)
-                           find_data_struct(data_structs, value1);
-                           else {
-
-                           if (offset > 0)
-                           printf("x= *x - %d\n", offset);
-                           if (offset == 0)
-                           printf("x= *x\n");
-                           if (offset < 0)
-                           printf("x= *x + %d\n", -offset);
-
-                           }
-                         */
-                    }
-
-                    count++;
-                }
-            }
-        }
-
-    }
-    printf("pointer number is %d, same no. %d\n", count, same_count);
-
-    return;
-}
-
-
-void print_type_sequence(unsigned start_addr, unsigned end_addr,
-                         Mem * mem1)
-{
-    int isString(unsigned value) {
-        int isString = 0;       // default is string
-        // >= 33 <= 126 ascii code 
-        char byte = value & 0x000f;
-        if ((int) byte < 33 || (int) byte > 126)
-            return -1;
-        if (((value >> 4) & 0x000f) < 33 || ((value >> 4) & 0x000f) > 126)
-            return -1;
-        if (((value >> 8) & 0x000f) < 33 || ((value >> 8) & 0x000f) > 126)
-            return -1;
-        if (((value >> 12) & 0x000f) <
-            33 || ((value >> 12) & 0x000f) > 126)
-            return -1;
-
-        return isString;
-    }
-
-    unsigned virtual_address = start_addr;
-    while (virtual_address < end_addr) {
-        unsigned p_addr =
-            vtop(mem1->mem, mem1->mem_size, mem1->pgd, virtual_address);
-        unsigned value = *((unsigned *) ((unsigned) mem1->mem + p_addr));
-        if (value == 0)
-            printf("%c", '0');
-        else if (isKernelAddr(value, mem1))
-            printf("%c", 'A');
-        else if (isString(value) == 0)
-            printf("%c", 'S');
-        else
-            printf("%c", 'D');
-
-
-        virtual_address += 4;
-    }
-    puts("");
-    return;
-}
-
-
-/*determine whether a value is a valid non-empty kernel point */
-int isKernelAddr(unsigned vaddr, Mem * mem)
-{
-    //special pointer
-    if (vaddr == 0x00100100 || vaddr == 0x00200200)
-        return 1;
-
-    //non pointer
-    if (vaddr == 0xcccccccc)
-        return 0;
-
-    //normal pointer
-    unsigned kernleStartAddr;
-    kernleStartAddr = 0x80000000;
-    if (vaddr > kernleStartAddr) {
-        unsigned pAddr = vtop(mem->mem, mem->mem_size, mem->pgd, vaddr);
-        if (pAddr > 0 && pAddr < mem->mem_size)
-            return 1;
-    }
-    return 0;
-}
-
-int isNonPointer(unsigned vir_add, Mem * mem)
-{
-    if (vir_add == 0xcccccccc)
-        return 1;
-    return !isKernelAddressOrZero(vir_add, mem);
-}
-
-int pointer_match(unsigned vAddr, Mem * mem1, Mem * mem2,
-                  int *not_match_no)
-{
-    int j;
-    int pointsMatch = 0;
-    for (j = 0; j < PAGE_SIZE; j += 4) {
-        unsigned virAddr = vAddr + j;
         unsigned pAddr1 =
-            vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
-        unsigned pAddr2 =
-            vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
+            vtop(mem1->mem, mem1->mem_size, mem1->pgd, vAddr);
+        char *page = (char *) ((unsigned) mem1->mem + pAddr1);
 
-        //get value by assume its a point
-        unsigned value1 = *((unsigned *) ((unsigned) mem1->mem + pAddr1));
-        unsigned value2 = *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+		//print page number
+        page_no++;
+		
+        int j;
+        int pointer_no_in_page = 0;
+        for (j = 0; j < 4 * 1024; j += 4) {
+           unsigned virAddr = vAddr + j;
+           unsigned pAddr1 =
+           vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
+           unsigned value1 =
+           *((unsigned *) ((unsigned) mem1->mem + pAddr1));
 
-        if ((isKernelAddr(value1, mem1)
-             && (isKernelAddressOrZero(value2, mem2)))
-            || (isKernelAddressOrZero(value1, mem1)
-                && isKernelAddr(value2, mem2))) {
-            pointsMatch++;
-            if (value1 != 0 && value2 != 0) {
-                (*not_match_no) = 0;    //reset pointNotMatch, since strong match
-                printf("%x\n", virAddr);
-                //printf("%x %x %x %d\n", virAddr, value1, value2,
-                //     value1 == value2);
-            }
-            continue;
+           unsigned pAddr2 =
+           vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
+           unsigned value2 =
+           *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+
+           if (isKernelAddr(value1, mem1)
+               && isKernelAddr(value2, mem2)
+               && value1 >= target_cluster.start
+               && value1 <= target_cluster.end
+               && value2 >= target_cluster.start
+               && value2 <= target_cluster.end) {
+             pointer_no_in_page ++;
+             int same = (value1 == value2);
+             if (same == 1) {
+               same_count++;
+               g_array_append_val(pointers, value1);
+             }
+             count++;
+
+             if(pageStart ==  0xc04a8000 || pageStart ==  0xc0494000 ||pageStart ==  0xc0495000  || pageStart ==  0xc0497000 )
+               printf("%x,%x/%x %d\n", virAddr, value1, value2, same);
+           }
         }
-        //value1 not equals to value2
-        if (value1 != value2) {
-            if ((isKernelAddr(value1, mem1)
-                 && isNonPointer(value2, mem2))
-                || (isNonPointer(value1, mem1)
-                    && isKernelAddr(value2, mem2))) {
-                (*not_match_no)++;
-                //                              printf("%x %x not pointer\n", value1,value2);
-                if ((*not_match_no) > 800) {
-                    printf("end is %x\n", virAddr);
-                    return 0;
-                } else
-                    continue;
-            }
+
+        printf("%d 0x%x %d\n", page_no, vAddr, pointer_no_in_page);
+
+        /*
+        if((pointer_no_in_page > 0 && pre_pointer_no == 0 )||(pointer_no_in_page == 0 && pre_pointer_no > 0 ) ){
+          printf("page %d start vaddr 0x%x\n", page_no, vAddr);
+          pre_pointer_no = pointer_no_in_page;
         }
+        */
     }
 
-    return 1;
+    return pointers;
 }
 
-//whether value weak kernel address? 0x100100, 0x200200, 0, normal kernel address(such as 0xc042c340)
-//0x74737461 refer to timer.h  #define TIMER_ENTRY_STATIC       ((void *) 0x74737461)
-int isWeakKernelAddress(unsigned value, Mem * mem)
-{
-    if (value == 0x00100100 || value == 0x00200200
-        || value == 0x74737461 || value == 0
-        || isKernelAddress(value, mem))
+
+int find_first_pointer_next_level(int level,unsigned vaddr1, unsigned vaddr2,Mem * mem1, Mem * mem2, cluster heap, cluster global_data,cluster readonly){
+  int i ;
+  if(level > 4) return 1;
+  for(i=0; i < PAGE_SIZE; i += 4 ){
+    unsigned vAddr1 = vaddr1 +i;
+    unsigned vAddr2 = vaddr2 +i;
+      unsigned pAddr1 =
+        vtop(mem1->mem, mem1->mem_size, mem1->pgd, vAddr1);
+      unsigned value1 =
+        *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+
+      unsigned pAddr2 =
+        vtop(mem2->mem, mem2->mem_size, mem2->pgd, vAddr2);
+      unsigned value2 =
+        *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+
+      int is_value1_pointer =0;
+      if(isKernelAddr(value1, mem1))
+        is_value1_pointer = 1;
+
+      int is_value2_pointer =0;
+      if ( isKernelAddr(value2, mem2))
+        is_value2_pointer = 1;
+
+      //if both are heap pointers, to next level
+      if( is_value1_pointer && is_value2_pointer
+          && value1 >= heap.start && value1 <= heap.end
+          && value2 >= heap.start && value2 <= heap.end){
+        int ret =  find_first_pointer_next_level(level+1, value1,value2,mem1,mem2,heap,global_data,readonly);
+        if (ret == 1){
+          printf("(%d,%d,%x/%x)",level,i,value1,value2);
+          return 1;
+          }
+      }
+      
+      int is_global_or_readonly(unsigned address,cluster global_data,cluster readonly){
+        if((address >=global_data.start && address <= global_data.end )
+           || (address >= readonly.start && address <= readonly.end ))
+          return 1;
+        else
+          return 0;
+      }
+      
+      //if one is pointer and the other is zero, match, return 1
+      if( ( is_value1_pointer == 1 && is_global_or_readonly(value1,global_data,readonly)
+            && (value2 == 0 || value1 == value2))||
+          ( value1 == 0 && is_value2_pointer == 1 && is_global_or_readonly(value2,global_data,readonly) )){
+        printf("%x and %x pointer vs zero or global and readonly\n",value1,value2);
         return 1;
-    else
+      }
+
+      if(isWeakKernelAddress(value1,mem1) && isWeakKernelAddress(value2,mem2))
+        {
+          if(value1 != 0 && value2 != 0)
+            printf("%x and %x are weakKernelAddress\n", value1,value2);
+          continue;
+        }
+      
+      //if one of value is pointer and the other is not, no match,
+      //return 0, loose
+      if( ( is_value1_pointer == 1 && is_value2_pointer == 0 )||
+          ( is_value1_pointer == 0 && is_value2_pointer == 1 )
+          ){
+        printf("%x %x no match\n",value1,value2);
         return 0;
+      }
+
+  }
+  //if in length
+  return 1;
+}
+
+// 3depth, only see the first pointer of data, print the path
+//
+GArray * recursive_data_heap(Mem * mem1, Mem * mem2, cluster global_data,cluster heap, cluster readonly){
+  GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
+  //start from beginning of page
+  unsigned pageStart = global_data.start & 0xfffff000; 
+  int pointer_no =0, reliable_pointer_no =0;
+  
+  for (; pageStart <= global_data.end; pageStart += 0x1000) {
+    if (!isPageExist(pageStart, mem1)
+        || !isPageExist(pageStart, mem2))
+      continue;
+
+        unsigned vAddr = pageStart;
+        unsigned pAddr1 =
+            vtop(mem1->mem, mem1->mem_size, mem1->pgd, vAddr);
+        char *page = (char *) ((unsigned) mem1->mem + pAddr1);
+		
+        int j;
+        for (j = 0; j < 4 * 1024; j += 4) {
+           unsigned virAddr = vAddr + j;
+           unsigned pAddr1 =
+           vtop(mem1->mem, mem1->mem_size, mem1->pgd, virAddr);
+           unsigned value1 =
+           *((unsigned *) ((unsigned) mem1->mem + pAddr1));
+
+           unsigned pAddr2 =
+           vtop(mem2->mem, mem2->mem_size, mem2->pgd, virAddr);
+           unsigned value2 =
+           *((unsigned *) ((unsigned) mem2->mem + pAddr2));
+
+           if (isKernelAddr(value1, mem1)
+               && isKernelAddr(value2, mem2)
+               && value1 >= heap.start
+               && value1 <= heap.end
+               && value2 >= heap.start
+               && value2 <= heap.end) {
+             pointer_no ++;
+             //check whether pointers is reliable
+             int ret =find_first_pointer_next_level(1, value1,value2,mem1,mem2,heap,global_data,readonly);
+             if (ret == 1){
+               //               printf("\n%x,%x/%x\n", virAddr, value1, value2);
+               reliable_pointer_no++;
+               g_array_append_val(pointers, virAddr);
+             }
+             printf("\n%x,%x/%x\n", virAddr, value1, value2);
+           }
+        }
+  }
+  printf("pointers no %d, reliable pointer %d\n",pointer_no, reliable_pointer_no);
+
+  int i;
+  for(i=0;i<pointers->len;i++)
+    {
+      unsigned addr = g_array_index(pointers, unsigned, i);
+      printf("%x\n",addr);
+    }
+  return pointers;
 }
 
 //Get all addresses from Read only area
-void get_all_addresses_from_ro(Mem * mem1, Mem * mem2, cluster src_cluster,cluster targetcluster){
-   puts("------------------Get all addresses from Read only area ------------------");
-   GArray *pointers =
-        get_all_addresses(src_cluster, targetcluster, mem1, mem2);
-   puts("------------------sort and print------------------");
-   GArray *data_structs = compute_size(pointers, mem1);
-   g_array_free(pointers, FALSE);
-   g_array_free(data_structs, FALSE);
-}
+GArray* get_reliable_addresses_from_ro(Mem * mem1, Mem * mem2, cluster src_cluster,cluster targetcluster){
 
-//Get all addresses from Read only area
-void get_reliable_addresses_from_ro(Mem * mem1, Mem * mem2, cluster src_cluster,cluster targetcluster){
   puts("------------------Get reliable addresses from Read only area -----------------");
   GArray *reliable_addrs =
     get_reliable_addresses(src_cluster, targetcluster, mem1, mem2);
   puts("------------------sort points and print them------------------");
   GArray *reliable_data_structs = compute_size(reliable_addrs, mem1);
+
   g_array_free(reliable_addrs, FALSE);
-  g_array_free(reliable_data_structs, FALSE);
+  return reliable_data_structs;
 }
+
+//get pointers2 except pointers1, these are two sorted arrays
+GArray * getIntersection( GArray *pointers1,  GArray *pointers2){
+  GArray * intersection  = g_array_new(FALSE, FALSE, sizeof(unsigned));  
+  int i1, i2;
+  for ( i1 =0,i2=0; i1< pointers1 -> len && i2 < pointers2 -> len; ){
+    unsigned pointer1  = g_array_index(pointers1, unsigned, i1);
+    unsigned pointer2  = g_array_index(pointers2, unsigned, i2);
+    if (pointer1 == pointer2) {
+      i1++;
+      i2++;
+      continue;
+    }
+    if (pointer1 < pointer2){
+      i1 ++;
+    }else{
+      //pointer1 > pointer2
+      g_array_append_val(intersection, pointer2);
+      printf("%x\n", pointer2);
+      i2 ++;
+    }
+      
+  }
+
+  printf("diff len is %d\n", intersection -> len);
+  return intersection;
+}
+
 
 void build_graph(Mem * mem1, Mem * mem2)
 {
+
+    puts("------------------Get all pointers with recursion------------------");
+    cluster src_cluster;
+    src_cluster.start = 0xc0000000;
+    src_cluster.end= 0xffffe000;
+
+    cluster targetcluster;
+    targetcluster.start = 0xc0000000;
+    targetcluster.end = 0xffffe000;
+
+    GArray * allpointers=get_all_addresses_src2target(mem1,mem2,src_cluster,targetcluster);
+    printf("allpointers len is %d\n", allpointers->len);
+
+
+    /*
+    //all pointers, compare the first match of all pointers,
+    puts("------------------tranverse one by one------------------");
+    //if first level offset is same and the next level matches, than keep this pointer and add to same
+    //class
+    GHashTable* class_hash = g_hash_table_new(g_str_hash, g_direct_equal);
+    int i ;
+    for (i=0;i< allpointers -> len; i ++){
+      unsigned pointer =g_array_index(allpointers, unsigned, i);
+      int ret = print_point_sharp(1,pointer,mem2, targetcluster);
+      if(ret == 1){
+        printf("%x \n", pointer);
+        g_array_append_val(pointers, pointer);
+      }
+    }
+    
+    g_hash_table_insert(hash, "4", allpointers);
+    g_hash_table_insert(hash, "12", allpointers);
+    //    printf("There are %d keys in the hash\n", g_hash_table_size(hash));
+    allpointers = (GArray *)g_hash_table_lookup(hash, "43");
+    printf("The 4 len is %x\n", allpointers);
+    if (allpointers != 0)
+      printf("The 4 len is %d\n", allpointers->len);
+    return;
+    GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
+    */
+    return;
+}
+
+//given two mem which one have more processes than other, get the
+//different parts
+void intersect_mems(Mem * mem1, Mem * mem2)
+{
+    cluster src_cluster;
+    src_cluster.start = 0xc0000000;
+    src_cluster.end= 0xffffe000;
+
+    cluster targetcluster;
+    targetcluster.start = 0xc0000000;
+    targetcluster.end = 0xffffe000;
+
+    GArray * allpointers1=get_all_addresses_src2target(mem1,mem2,src_cluster,targetcluster);
+    GArray * allpointers2=get_all_addresses_src2target(mem2,mem1,src_cluster,targetcluster);
+    //get intersection
+    GArray * allpointers = getIntersection(allpointers1, allpointers2);
+    puts("------------------tranverse one by one------------------");
+    GArray *pointers = g_array_new(FALSE, FALSE, sizeof(unsigned));
+    int i ;
+    for (i=0;i< allpointers -> len; i ++){
+      unsigned pointer =g_array_index(allpointers, unsigned, i);
+      int ret = print_point_sharp(1,pointer,mem2, targetcluster);
+      if(ret == 1){
+        printf("%x \n", pointer);
+        g_array_append_val(pointers, pointer);
+      }
+    }
+    return;
+}
+
+void find_global_areas(Mem * mem1, Mem * mem2){
     puts("-----------------find text(read only) area-----------------");
-    cluster src_cluster = findreadonlyarea(mem1, mem2);
+    cluster readonly_cluster = findreadonlyarea(mem1, mem2);
 
     puts("-----------------find global data area-----------------");
     cluster targetcluster;
-    targetcluster.start = src_cluster.end + 0x1000;
-    //    targetcluster.end = findLoop(src_cluster, mem1, mem2);
+    targetcluster.start = readonly_cluster.end + 0x1000;
+    //    targetcluster.end = findLoop(readonly_cluster, mem1, mem2);
     targetcluster.end = 0xffffe000;
- 
-    get_all_addresses_from_ro(mem1,mem2,src_cluster,targetcluster);
+
+    //       puts("------------------Get all addresses from Read only area ------------------");
+    //    get_all_addresses_src2target(mem1,mem2,readonly_cluster,targetcluster);
+
+    //get global data area by reliable disassemble
+    GArray *reliable_data_structs=  get_reliable_addresses_from_ro(mem1,mem2,readonly_cluster,targetcluster);
+    cluster global_data_cluster;
+    global_data_cluster.start = g_array_index(reliable_data_structs, unsigned, 0);
+    global_data_cluster.end = g_array_index(reliable_data_structs, unsigned, reliable_data_structs->len -1);
+    printf("global data start %x, end %x \n",global_data_cluster.start, global_data_cluster.end);
+    g_array_free(reliable_data_structs, FALSE);
+
+
+    //throw the areas which have no pointers to heap
+    //targetcluster.start = (global_data_cluster.end & 0xfffff000) +  0x1000;
+    //    targetcluster.end = 0xffffe000;
+
+    //throw the areas which have no pointers to global data
+    //    targetcluster.start = global_data_cluster.start & 0xfffff000;
+    //    targetcluster.end = (global_data_cluster.end & 0xfffff000) +  0x1000;
+
+    //    GArray * pointers = has_pointers(mem1,mem2,global_data_cluster,targetcluster);
+    //    g_array_free(pointers, FALSE);
+
+    /*
+    puts("------------------Get all addresses from global data area to ro area------------------");
+    targetcluster.start = 0xc0000000;
+    targetcluster.end = global_data_cluster.start & 0xfffff000;
+    GArray * data2ro = get_all_addresses_src2target(mem1,mem2,global_data_cluster,targetcluster);
+
+
+    punts("------------------Get all addresses from global data area to global data area------------------");
+    targetcluster.start = global_data_cluster.start & 0xfffff000;
+    targetcluster.end = (global_data_cluster.end & 0xfffff000) +  0x1000;
+    GArray * data2data=get_all_addresses_src2target(mem1,mem2,global_data_cluster,targetcluster);
+
+    */
+
+   
+    puts("------------------Get all addresses from global data area to other areas(heap)------------------");
+    targetcluster.start = (global_data_cluster.end & 0xfffff000) +  0x1000;
+    targetcluster.end = 0xffffe000;
+    GArray * data2heap=get_all_addresses_src2target(mem1,mem2,global_data_cluster,targetcluster);
+
+    puts("------------------recursive data in heap------------------");
+    cluster heap_area;
+    heap_area.start = g_array_index(data2heap, unsigned, 0);
+    heap_area.end = g_array_index(data2heap, unsigned, data2heap->len -1);
+    //    GArray * heap2heap=get_all_addresses_src2target(mem1,mem2,heap_area,targetcluster);
+    recursive_data_heap(mem1,mem2,global_data_cluster,heap_area,readonly_cluster);
+
     
-    get_reliable_addresses_from_ro(mem1,mem2,src_cluster,targetcluster);
-    
+    /*
+    int total = data2ro->len + data2data->len +data2heap->len;
+    printf ("data2ro %d, data2data %d, data2heap %d\n",data2ro->len, data2data->len, data2heap->len);
+    printf ("data2ro  %f, data2data %f, data2heap %f\n", (float)data2ro->len/total,(float)data2data->len/total, (float)data2heap->len/total);
+    g_array_free(data2ro, FALSE);
+    g_array_free(data2data, FALSE);
+    */
+    g_array_free(data2heap, FALSE);
+
     return;
 }

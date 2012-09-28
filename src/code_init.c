@@ -16,7 +16,6 @@ xed_state_t dstate;
 xed_decoded_inst_t xedd;
 
 
-
 range ranges[0x10000];
 unsigned range_index = 0;
 
@@ -275,8 +274,8 @@ int disasn_func(Mem * mem, unsigned char *data, unsigned *poffset,
                 || opcode == XED_ICLASS_INT3)
                 success = 1;
             //modified by yufei
-            // if (opcode == XED_ICLASS_JMP)
-            //  success = 1;
+            if (opcode == XED_ICLASS_JMP)
+              success = 1;
             if (size == 3 && data[offset] == 0x8d
                 && data[offset + 1] == 0x49 && data[offset + 2] == 0x00)
                 success = 1;
@@ -392,7 +391,7 @@ int disasn_func(Mem * mem, unsigned char *data, unsigned *poffset,
             if (opcode == XED_ICLASS_INT3
                 || opcode == XED_ICLASS_RET_NEAR
                 || opcode == XED_ICLASS_RET_FAR
-                //|| (opcode == XED_ICLASS_JMP)
+                || (opcode == XED_ICLASS_JMP)
                 ) {
                 *poffset = offset + size;
 
@@ -896,8 +895,6 @@ void page_init(Mem * mem, int pageIndex, int pageSize, int sameSharp[],
     for (next = offsets[pageIndex]; next != NULL; next = next->next) {
         offset = next->offset;
         if (offset > end) {
-		  //            for (i = end; is_replace && i < offset; i++)
-		  //    page[i] = '\0';
             end = offset;
             if (disasn_func
                 (mem, page, &end, pageSize, is_print, vaddr,
@@ -912,14 +909,6 @@ void page_init(Mem * mem, int pageIndex, int pageSize, int sameSharp[],
     if (end >= pageSize) {
         page_end[pageIndex + 1] = end - pageSize;
     }
-#ifdef DEBUG
-    if (sameSharp[pageIndex] == 0)
-      indent: Standard input: 831: Error:Unexpected end of file
-            printf("can't disassemble %d\n",
-                   pageIndex);
-#endif
-	//    for (i = end; is_replace && i < pageSize; i++)
-	//  page[i] = '\0';
 }
 
 void code_init(Mem * mem, unsigned vaddr, unsigned pageSize,
