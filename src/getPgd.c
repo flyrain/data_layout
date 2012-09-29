@@ -208,10 +208,12 @@ int getPotentialPgd(int totalPageNumber, int pageSize, char *mem, int pageIndex[
 		for (j = 0; j < 2 * 1024; j = j + 4) {
 			unsigned pdeItem = *(unsigned *) ((unsigned) mem + startAddr + j);
 			if ((pdeItem & 0x418) != 0) {
+              //                printf(" (pdeItem & 0x418) != 0  %x\n",pdeItem);
 				isPgd = 0;
 				break;
 			}
 		}
+        
 		if (isPgd == 0)
 			continue;
 
@@ -256,6 +258,7 @@ int getPotentialPgd(int totalPageNumber, int pageSize, char *mem, int pageIndex[
 		}
 		//detemine whether this page is a pgd
 		if (isPgd == 1 && matchCount >= 1) {
+          printf("page index is %d\n",i);
 			pageIndex[i] = 1;
 			pgdcount++;
 		}

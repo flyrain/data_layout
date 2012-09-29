@@ -66,28 +66,25 @@ def getPotentialPgd(pageNo, pageSize, memData):
         if (isPgd == 1 and matchCount >= 1):
             potentialPgdIndx.append(i)
 
-    print "potential pdg count: %d" % len(potentialPgdIndx)
+    print "Potential PDG number: %d" % len(potentialPgdIndx)
     return potentialPgdIndx;
 
 
-def isEqual(char *mem, unsigned paddr1, unsigned paddr2, int length) :
+def isEqual(memData, paddr1, paddr2, length) :
     '''
     if two pgd page is equal
     '''
-    noMatchCount = 0;
-    unsigned value1s[512];
-    unsigned value2s[512];
-    int indexs[512];
-    for (i = 0; i < length; i = i + 4):
-        unsigned value1 = *(unsigned *) ((unsigned) mem + paddr1 + i);
-        unsigned value2 = *(unsigned *) ((unsigned) mem + paddr2 + i);
+    noMatchCount = 0.0
+    for i in range (0, length,4):
+        addr = paddr1 + i
+        value1 =  struct.unpack('I', memData[addr: (addr+4)])[0]
+        addr = paddr2 + i
+        value2 = struct.unpack('I', memData[addr: (addr+4)])[0]
         if (value1 != value2):
-            value1s[noMatchCount] = value1;
-            value2s[noMatchCount] = value2;
-            indexs[noMatchCount] = i;
-            noMatchCount++;
+            noMatchCount = noMatchCount + 1
 
-    float matchRate = (float) noMatchCount / (float) (length / 4)
+    matchRate =  noMatchCount /  (length / 4)
+
     #rate less than 0.02
     if (matchRate <= 0.02):
         return True
@@ -95,8 +92,7 @@ def isEqual(char *mem, unsigned paddr1, unsigned paddr2, int length) :
         return False
 
 
-
-def  getPgdReal(potentialPgds, pageSize, char *mem):
+def getRealPgd(potentialPgds, pageSize, memData):
     '''
     get real pgd page by compare all field of 3*1024 to 4*1024
     '''
@@ -123,9 +119,9 @@ def  getPgdReal(potentialPgds, pageSize, char *mem):
             startIndex = 2;
             paddr1 = potentialPgds[i] * pageSize + startIndex * 1024;
             paddr2 = potentialPgds[j] * pageSize + startIndex * 1024;
-            if isEqual(mem, paddr1, paddr2, (4 - startIndex) * 1024):
-                matchNumber[i]++;
-                countedpages[j] = i;
+            if isEqual(memData, paddr1, paddr2, (4 - startIndex) * 1024):
+                matchNumber[i] = matchNumber[i] +1
+                countedpages[j] = i
 
     #if current match number is bigger than max Match number,
     #then update max Match number, and record the phycial address
@@ -139,27 +135,126 @@ def  getPgdReal(potentialPgds, pageSize, char *mem):
     pgdPhyAddr = potentialPgds[maxIndex] * pageSize;
 
     #printf all real pgds
+    print "Real PGD Number is %d, PGD physical address:0x%x" % (maxMatch + 1, pgdPhyAddr)
+    return pgdPhyAddr
 
-    print "Real PGD Number is %d, PGD physical address:0x%x\n" % (maxMatch + 1, pgdPhyAddr)
-    return pgdPhyAddr;
 
-
-def getPgd(filename):
+def getPgd(memData, pageSize):
     '''
     find the pgd of memory
     '''
-    pageSize = 4096
-    memSize = os.path.getsize(filename)
-    pageNo = memSize/pageSize
-    print memSize,pageNo, pageSize
-    f = open(filename,'rb')
-    memData = f.read()
     potentialPgdIndx = getPotentialPgd(pageNo, pageSize, memData)
     #print potentialPgdIndx
-    getRealPgd(memData, potentialPgdIndx, pageSize)
-    pgd = 0
+    pgd =  getRealPgd( potentialPgdIndx, pageSize,memData)
     return pgd
+
+
+def vtop(memData,  pgd,  addr):
+    '''
+    virtual address to physical address
+    '''
+    size = len(memData)
+    #get pde
+    pde_addr = (pgd & ~0xfff) + ((addr >> 20) & ~3);
+    if (pde_addr > size):
+        print "ERROR 1 addr %x pde %x\n" % (addr, pde_addr)
+        return -1;
+
+    pde = struct.unpack('I', memData[pde_addr: (pde_addr+4)])[0]
+	
+    #get pte
+    pte = 0
+    pte_addr = 0
+    page_size = 0 
+
+    PG_PRESENT_BIT = 0
+    PG_PRESENT_MASK = 1 << PG_PRESENT_BIT
+    if (pde & PG_PRESENT_MASK) == 0 : return -1;
+
+    PG_PSE_BIT = 7
+    PG_PSE_MASK = (1 << PG_PSE_BIT)
+    if (pde & PG_PSE_MASK):
+        pte = pde & ~0x003ff000;
+        page_size = 4096 * 1024;
+    else:
+        pte_addr = ((pde & ~0xfff) + ((addr >> 10) & 0xffc));
+        if (pte_addr > size): return -1
+        pte = struct.unpack('I', memData[pte_addr: (pte_addr+4)])[0]
+        if (pte & PG_PRESENT_MASK) == 0: 	return -1
+        page_size = 4096;
+
+    #get paddr
+    page_offset = addr & (page_size - 1);
+    
+    TARGET_PAGE_SIZE = (1 << 12)
+    TARGET_PAGE_MASK = ~(TARGET_PAGE_SIZE -1)
+    
+    paddr = (pte & TARGET_PAGE_MASK) + page_offset;
+
+    if (paddr >= size): return -1;
+
+    return paddr;
+
+
+
+def isKernelAddr(vaddr, memData, pgd):
+    '''
+    determine whether a value is a valid non-empty kernel point
+    '''
+     #special pointer
+    if (vaddr == 0x00100100 or vaddr == 0x00200200):
+        return True
+
+     #non pointer
+    if (vaddr == 0xcccccccc):
+        return False;
+
+     #normal pointer
+    if (vaddr > 0xc0000000):
+        pAddr = vtop(memData, pgd, vaddr)
+        if (pAddr >= 0 and pAddr <= len(memData)):
+            return True
+
+    return False;
+
+
+def getAddressSrc2tar(src, target, memData, pgd):
+    '''
+    Get all pointers from src to target
+    '''
+    addresses =[]
+    beginAddr = src['start'] & 0xfffff000;
+ 
+    for pageStart in range(beginAddr, src['end'], 0x1000):
+        #find page start physical address, then interate the whole page
+        pAddr = vtop(memData, pgd, pageStart)
+        if pAddr < 0 or pAddr > len(memData): continue
+        for i in range(0,  4 * 1024, 4):
+            addr = pAddr + i 
+            value = struct.unpack('I', memData[addr: (addr+4)])[0]
+           
+            if isKernelAddr(value, memData, pgd) and value >= target['start'] and value < target['end']:
+                print hex(value)
+                addresses.append(value)
+    
+    print "Pointer Number: %d" % len(addresses) 
+
+   #    compute_size(pointers2, mem2);
+    return addresses
+
+def findClass(memData, pageSize, pgd):
+    src = {"start":0xc0000000, "end":0xffffe000}
+    target = {"start":0xc0000000, "end":0xffffe000}
+    getAddressSrc2tar(src,target, memData, pgd)
 
 if __name__ == "__main__":
     filename = sys.argv[1]
-    getPgd(filename)
+    pageSize = 4096
+    memSize = os.path.getsize(filename)
+    pageNo = memSize/pageSize
+    print "Mem Size %d Page Number %d Page Size %d" % (memSize,pageNo, pageSize)
+    f = open(filename,'rb')
+    memData = f.read()
+    pgd = getPgd(memData, pageSize)
+    findClass(memData, pageSize,pgd)
+
