@@ -8,6 +8,7 @@ def isPteValid( pteStart, memData):
     matchCount = 0;
     for k in range(0, 4 * 1024, 4):
         addr = pteStart + k
+        if not (addr > 0 and addr + 4 < len(memData)): continue
         pte =  struct.unpack('I', memData[addr: (addr+4)])[0]
         #printf("pte:%x\n",pte);
         if ((pte & 0x1) == 0x1 and (pte & ~0xfff) > len(memData)):
@@ -232,23 +233,117 @@ def getAddressSrc2tar(src, target, memData, pgd):
         for i in range(0,  4 * 1024, 4):
             addr = pAddr + i 
             value = struct.unpack('I', memData[addr: (addr+4)])[0]
-           
+            
             if isKernelAddr(value, memData, pgd) and value >= target['start'] and value < target['end']:
-                print hex(value)
+                #print hex(value)
                 addresses.append(value)
     
-    print "Pointer Number: %d" % len(addresses) 
+    print "Addresses Number: %d" % len(addresses) 
 
-   #    compute_size(pointers2, mem2);
-    return addresses
+    #sort
+    addresses.sort()
+
+    #remove redundent
+    pointers =[]
+    for item in addresses:
+        if len(pointers) == 0 or pointers[len(pointers) -1] != item:
+            pointers.append(item)
+
+    print "Pointers Number: %d" % len(pointers) 
+#    for item in pointers:
+#        print hex(item)
+    return pointers
+
+def isListhead(pointer,memData, pgd, level):
+    '''
+    Determine if the pointer point to a list head
+    '''
+    if level > 2: return True
+    paddr = vtop(memData, pgd, pointer)
+    if paddr < 0 or paddr+8 > len(memData): return False 
+    valueNext = struct.unpack('I', memData[paddr: (paddr+4)])[0]
+    valuePre = struct.unpack('I', memData[paddr + 4: (paddr+8)])[0]
+    isValueNextList = False
+    if isKernelAddr(valueNext, memData, pgd) and isListhead(valueNext, memData,pgd, level+1):
+        isValueNextList = True
+    isValuePreList = False
+    if  isKernelAddr(valuePre, memData, pgd) and isListhead(valuePre, memData, pgd, level+1): 
+        isValuePreList = True
+
+    #if consider the 0 as null pointer, it will overkill some pointers
+#    if (isValueNextList and isValuePreList) or (isValueNextList and
+#    valuePre == 0 ) or (isValuePreList and valueNext == 0):
+    if (isValueNextList and isValuePreList):
+        return True
+
+    return False
+
+
+def removeListhead(pointers, memData, pgd):
+    '''
+    remove listhead 
+    '''
+    pointersNoListhead = []
+    for pointer in pointers:
+        if not isListhead(pointer, memData, pgd, 1): 
+            pointersNoListhead.append(pointer)
+
+    print "Pointers without ListHead: %d" %len(pointersNoListhead)
+#    for item in pointersNoListhead:
+#        print hex(item)         
+
+    return pointersNoListhead
+
+
+def classify(lines,i):
+    if(i > max_index): return
+    groups = {}
+    for line in lines:
+#        if line.__contains__(' 4 4 4 '): continue
+        if line.startswith('0 4 '): continue
+        array = line.split()
+        first = int(array[i])
+        if( groups.has_key(first)):
+            groups.get(first).append(line)
+        else:
+            groups[first] = [line]
+
+    for k  in sorted(groups.iterkeys()):
+        v = groups.get(k)
+        if i== max_index and len(v) == 6:
+            print  "%d: %s" % (len(v), v[0])
+            global class_count
+            class_count = class_count + 1
+
+        if len(v) > 1:
+            classify(v,i+1)
+
 
 def findClass(memData, pageSize, pgd):
     src = {"start":0xc0000000, "end":0xffffe000}
     target = {"start":0xc0000000, "end":0xffffe000}
-    getAddressSrc2tar(src,target, memData, pgd)
+    pointers = getAddressSrc2tar(src,target, memData, pgd)
+    pointers = removeListhead(pointers, memData, pgd)
+
+    sharps ={}
+    for pointer in pointers:
+        offset = []
+        preOffset = 0
+        for i in range(0,pageSize,4):
+            if len(offset) > 10: break
+            paddr = vtop(memData,pgd,pointer + i)
+            value = struct.unpack('I', memData[paddr: (paddr+4)])[0]
+            if isKernelAddr(value,memData,pgd):
+                offset.append(i - preOffset)
+                preOffset =i
+                
+        if len(offset) > 0:
+            print hex(pointer),offset
+
 
 if __name__ == "__main__":
     filename = sys.argv[1]
+    print "File name: %s" % filename
     pageSize = 4096
     memSize = os.path.getsize(filename)
     pageNo = memSize/pageSize
@@ -256,5 +351,4 @@ if __name__ == "__main__":
     f = open(filename,'rb')
     memData = f.read()
     pgd = getPgd(memData, pageSize)
-    findClass(memData, pageSize,pgd)
-
+    findClass(memData, pageSize,pgd) 
