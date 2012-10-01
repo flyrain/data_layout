@@ -196,6 +196,71 @@ def vtop(memData,  pgd,  addr):
 
     return paddr;
 
+def vtopPageAttribute(memData,  pgd,  addr):
+    '''
+    virtual address to physical address
+    '''
+    size = len(memData)
+    #get pde
+    pde_addr = (pgd & ~0xfff) + ((addr >> 20) & ~3);
+    if (pde_addr > size):
+        print "ERROR 1 addr %x pde %x\n" % (addr, pde_addr)
+        return None
+
+    pde = struct.unpack('I', memData[pde_addr: (pde_addr+4)])[0]
+	
+    #get pte
+    pte = 0
+    pte_addr = 0
+    page_size = 0 
+
+    PG_PRESENT_BIT = 0
+    PG_PRESENT_MASK = 1 << PG_PRESENT_BIT
+    if (pde & PG_PRESENT_MASK) == 0 : return None;
+
+    PG_PSE_BIT = 7
+    PG_PSE_MASK = (1 << PG_PSE_BIT)
+    if (pde & PG_PSE_MASK):
+        pte = pde & ~0x003ff000;
+        page_size = 4096 * 1024;
+    else:
+        pte_addr = ((pde & ~0xfff) + ((addr >> 10) & 0xffc));
+        if (pte_addr > size): return None
+        pte = struct.unpack('I', memData[pte_addr: (pte_addr+4)])[0]
+        if (pte & PG_PRESENT_MASK) == 0: 	return None
+        page_size = 4096;
+
+    #get paddr
+    page_offset = addr & (page_size - 1);
+    
+    TARGET_PAGE_SIZE = (1 << 12)
+    TARGET_PAGE_MASK = ~(TARGET_PAGE_SIZE -1)
+    
+    paddr = (pte & TARGET_PAGE_MASK) + page_offset;
+
+    if (paddr >= size): return None;
+
+    groups ={}
+    groups['paddr'] = paddr
+    #set page attribute
+    if(page_size==0x400000): 
+        groups['ps'] = 1
+    else:
+        groups['ps'] = 0
+
+    PG_RW_BIT = 1
+    PG_RW_MASK =  (1 << PG_RW_BIT)
+    groups['rw'] = pte & PG_RW_MASK
+
+    PG_USER_BIT = 2
+    PG_USER_MASK = (1 << PG_USER_BIT)
+    groups['us'] = pte & PG_USER_MASK
+
+    PG_GLOBAL_BIT = 8
+    PG_GLOBAL_MASK = (1 << PG_GLOBAL_BIT)
+    groups['us'] = pte & PG_GLOBAL_MASK;
+
+    return groups
 
 
 def isKernelAddr(vaddr, memData, pgd):
@@ -213,7 +278,7 @@ def isKernelAddr(vaddr, memData, pgd):
      #normal pointer
     if (vaddr > 0xc0000000):
         pAddr = vtop(memData, pgd, vaddr)
-        if (pAddr >= 0 and pAddr <= len(memData)):
+        if (pAddr >= 0 and pAddr < len(memData)):
             return True
 
     return False;
@@ -221,7 +286,7 @@ def isKernelAddr(vaddr, memData, pgd):
 
 def getAddressSrc2tar(src, target, memData, pgd):
     '''
-    Get all pointers from src to target
+    Get all pointers from src to target, without point to readonly area
     '''
     addresses =[]
     beginAddr = src['start'] & 0xfffff000;
@@ -233,7 +298,10 @@ def getAddressSrc2tar(src, target, memData, pgd):
         for i in range(0,  4 * 1024, 4):
             addr = pAddr + i 
             value = struct.unpack('I', memData[addr: (addr+4)])[0]
+            groups = vtopPageAttribute(memData,pgd, value)
             
+            if groups == None or groups['paddr'] < 0 or groups['paddr'] >= len(memData) or groups['rw'] == 0: continue
+
             if isKernelAddr(value, memData, pgd) and value >= target['start'] and value < target['end']:
                 #print hex(value)
                 addresses.append(value)
@@ -295,28 +363,54 @@ def removeListhead(pointers, memData, pgd):
     return pointersNoListhead
 
 
-def classify(lines,i):
-    if(i > max_index): return
+
+def getSharps(memData,pageSize,pgd, pointers):
+    sharps ={}
+    for pointer in pointers:
+        offsets = []
+        preOffset = 0
+        for i in range(0,pageSize,4):
+            if len(offsets) >= 10: break
+            paddr = vtop(memData,pgd,pointer + i)
+            if not (paddr > 0 and paddr + 4 < len(memData)): continue
+            value = struct.unpack('I', memData[paddr: (paddr+4)])[0]
+            if isKernelAddr(value,memData,pgd):
+                # if offset > 1000, must be next data struture
+                if i-preOffset > 1000: break 
+                offsets.append(i - preOffset)
+                preOffset =i
+                
+        if len(offsets) > 0:
+            if len(offsets) == 10:
+                sharps[pointer] = offsets
+#            print hex(pointer),offsets
+
+    print "Sharps number: %d" % len(sharps)
+    return sharps
+
+def classify(sharps,i, maxIndex, classes):
+    if(i > maxIndex): return
     groups = {}
-    for line in lines:
-#        if line.__contains__(' 4 4 4 '): continue
-        if line.startswith('0 4 '): continue
-        array = line.split()
-        first = int(array[i])
-        if( groups.has_key(first)):
-            groups.get(first).append(line)
+    for k,v in sharps.items():
+        value = v[i]
+        if( groups.has_key(value)):
+            groups.get(value)[k]=v
         else:
-            groups[first] = [line]
+            groups[value] = {}
+            groups[value][k] = v
 
-    for k  in sorted(groups.iterkeys()):
-        v = groups.get(k)
-        if i== max_index and len(v) == 6:
-            print  "%d: %s" % (len(v), v[0])
-            global class_count
-            class_count = class_count + 1
+    for k in sorted(groups.iterkeys()):
+        sharps = groups.get(k)
+        if i== maxIndex and len(sharps) > 1:
+            classes.append( sharps)
+            #print classes
+            print 'len: %d' % len(sharps) 
+            for k,v in sharps.items():
+                print hex(k),
+                print v
 
-        if len(v) > 1:
-            classify(v,i+1)
+        if len(sharps) > 1:
+            classify(sharps,i+1, maxIndex, classes)
 
 
 def findClass(memData, pageSize, pgd):
@@ -324,22 +418,32 @@ def findClass(memData, pageSize, pgd):
     target = {"start":0xc0000000, "end":0xffffe000}
     pointers = getAddressSrc2tar(src,target, memData, pgd)
     pointers = removeListhead(pointers, memData, pgd)
-
-    sharps ={}
-    for pointer in pointers:
-        offset = []
-        preOffset = 0
-        for i in range(0,pageSize,4):
-            if len(offset) > 10: break
-            paddr = vtop(memData,pgd,pointer + i)
-            value = struct.unpack('I', memData[paddr: (paddr+4)])[0]
-            if isKernelAddr(value,memData,pgd):
-                offset.append(i - preOffset)
-                preOffset =i
-                
-        if len(offset) > 0:
-            print hex(pointer),offset
-
+    sharps = getSharps(memData,pageSize,pgd, pointers)
+    classes = []
+    classify(sharps,0, 3, classes) # consider 3 pointers 
+    print 'classes number: %d' % len(classes)
+    
+    #    verify(classes)
+    #if all address in one classes is same, keep it.
+    for sharpClass in classes:
+        if len(sharpClass) != 33: continue
+        nextsharps = []
+        for pointer,sharp in sharpClass.items():
+            print hex(pointer),
+            print sharp
+            offset =0
+            for length in sharp[0:3]:
+                offset = offset + length
+                paddr = vtop(memData,pgd,pointer + offset)
+                value = struct.unpack('I', memData[paddr: (paddr+4)])[0]
+                if sharps.has_key(value):
+                    print length,sharps[value]
+                    nextsharps.append(sharps[value])
+                else:
+                    print length,None
+                    nextsharps.append(None)
+        
+    
 
 if __name__ == "__main__":
     filename = sys.argv[1]
