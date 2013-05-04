@@ -145,7 +145,9 @@ def getPgd(memData, pageSize):
     find the pgd of memory
     '''
     potentialPgdIndx = getPotentialPgd(pageNo, pageSize, memData)
-    #print potentialPgdIndx
+    print potentialPgdIndx 
+    for index in potentialPgdIndx:
+        print '0x%x' % (index * pageSize)
     pgd =  getRealPgd( potentialPgdIndx, pageSize,memData)
     return pgd
 
@@ -322,6 +324,37 @@ def getAddressSrc2tar(src, target, memData, pgd):
 #        print hex(item)
     return pointers
 
+
+def getCaller2pgd(src, pgds, memData, pgd):
+    '''
+    Get all pointers to pgd, save caller addresses
+    '''
+    beginAddr = src['start'] & 0xfffff000;
+    pgdCallers = {}
+ 
+    for pageStart in range(beginAddr, src['end'], 0x1000):
+        #find page start physical address, then interate the whole page
+        pAddr = vtop(memData, pgd, pageStart)
+        if pAddr < 0 or pAddr > len(memData): continue
+        for i in range(0,  4 * 1024, 4):
+            addr = pAddr + i 
+            value = struct.unpack('I', memData[addr: (addr+4)])[0]
+            paddrValue = vtop(memData,pgd, value)
+            
+            vaddr = pageStart + i
+            for pgd in pgds:
+                if paddrValue == pgd:
+                    print hex(value), hex(paddrValue), hex(vaddr)
+                    if not pgdCallers.has_key(pgd):
+                        pgdCallers[pgd] = [vaddr]
+                    else:
+                        pgdCallers[pgd].append(vaddr)
+                    break
+        
+    return pgdCallers
+
+
+
 def isListhead(pointer,memData, pgd, level):
     '''
     Determine if the pointer point to a list head
@@ -365,12 +398,13 @@ def removeListhead(pointers, memData, pgd):
 
 
 def getSharps(memData,pageSize,pgd, pointers):
+    offsetsLen = 20
     sharps ={}
     for pointer in pointers:
         offsets = []
         preOffset = 0
         for i in range(0,pageSize,4):
-            if len(offsets) >= 10: break
+            if len(offsets) >= offsetsLen: break
             paddr = vtop(memData,pgd,pointer + i)
             if not (paddr > 0 and paddr + 4 < len(memData)): continue
             value = struct.unpack('I', memData[paddr: (paddr+4)])[0]
@@ -381,8 +415,8 @@ def getSharps(memData,pageSize,pgd, pointers):
                 preOffset =i
                 
         if len(offsets) > 0:
-            if len(offsets) == 10:
-                sharps[pointer] = offsets
+#            if len(offsets) == offsetsLen:
+            sharps[pointer] = offsets
 #            print hex(pointer),offsets
 
     print "Sharps number: %d" % len(sharps)
@@ -443,7 +477,14 @@ def findClass(memData, pageSize, pgd):
                     print length,None
                     nextsharps.append(None)
         
-    
+
+def getValueByVAddr(memData, pgd, vaddr):
+    '''
+    get 32-bits value of specific virtual address
+    '''
+    paddr = vtop(memData,pgd, vaddr)
+    value = struct.unpack('I', memData[paddr: (paddr+4)])[0]
+    return value
 
 if __name__ == "__main__":
     filename = sys.argv[1]
@@ -455,4 +496,42 @@ if __name__ == "__main__":
     f = open(filename,'rb')
     memData = f.read()
     pgd = getPgd(memData, pageSize)
-    findClass(memData, pageSize,pgd) 
+    print "pgd is %x" % pgd
+
+#    findClass(memData, pageSize,pgd) 
+'''
+    potentialPgdIndx = getPotentialPgd(pageNo, pageSize, memData)
+    pgds =[]
+    for index in potentialPgdIndx:
+        print '0x%x' % (index * pageSize)
+        pgds.append(index * pageSize)
+   
+    pgd =  getRealPgd( potentialPgdIndx, pageSize,memData)
+
+    src = {"start":0xc0000000, "end":0xffffe000}
+    pgdCallers = getCaller2pgd(src, pgds, memData,pgd)
+    
+    print 'number of caller: %d' % len(pgdCallers)
+    pointers =[]
+    for k,v in pgdCallers.items():
+        print hex(k),
+        for item in v:
+            print hex(item),
+            pointers.append(item)
+        print ''
+
+    sharps =  getSharps(memData, pageSize, pgd, pointers)
+
+    #find the biggest classes
+    classes = []
+    classify(sharps,0, 3, classes) # consider 3 pointers
+    biggestClass = []
+    for sharps in classes:
+        if len(sharps) > len(biggestClass): 
+            biggestClass = sharps
+
+    print "the biggest classes"
+    for k,v in biggestClass.items():
+        print hex(k), v
+'''
+  
